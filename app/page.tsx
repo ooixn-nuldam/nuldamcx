@@ -43,16 +43,31 @@ export default function DashboardHome() {
 
   useEffect(() => { fetchCounts(); }, []);
 
-  const handleCollectInquiries = async () => {
+const handleCollectInquiries = async () => {
     if (isCollecting) return;
     setIsCollecting(true);
     try {
-      // Railway에서 발급받은 실제 엔드포인트로 교체 필수
-      const RAILWAY_ENDPOINT = "sabangnet-bot-production.up.railway.app/collect";
-      const response = await fetch(RAILWAY_ENDPOINT, { method: "POST" });
-      if (response.ok) alert("🚀 수집 시작! 완료 후 디스코드 알림을 확인하세요.");
+      // 1. https:// 프로토콜 추가
+      const RAILWAY_ENDPOINT = "https://sabangnet-bot-production.up.railway.app/collect";
+      
+      const response = await fetch(RAILWAY_ENDPOINT, { 
+        method: "POST",
+        // 필요 시 헤더 추가
+        headers: {
+          "Content-Type": "application/json",
+        }
+      });
+
+      if (response.ok) {
+        alert("🚀 수집 시작! 완료 후 데이터를 확인하세요.");
+      } else {
+        // 404나 500 에러 발생 시 처리
+        const errorData = await response.json().catch(() => ({}));
+        alert(`❌ 서버 오류: ${response.status} ${errorData.message || ''}`);
+      }
     } catch (error) {
-      alert("❌ 서버 연결 실패");
+      console.error("Connection Error:", error);
+      alert("❌ 서버 연결 실패 (네트워크 연결이나 서버 상태를 확인하세요)");
     } finally {
       setIsCollecting(false);
     }
