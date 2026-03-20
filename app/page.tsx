@@ -48,7 +48,7 @@ export default function DashboardHome() {
     setIsCollecting(true);
     try {
       // Railway에서 발급받은 실제 엔드포인트로 교체 필수
-      const RAILWAY_ENDPOINT = "https://your-bot-name.up.railway.app/collect";
+      const RAILWAY_ENDPOINT = "sabangnet-bot-production.up.railway.app/collect";
       const response = await fetch(RAILWAY_ENDPOINT, { method: "POST" });
       if (response.ok) alert("🚀 수집 시작! 완료 후 디스코드 알림을 확인하세요.");
     } catch (error) {
