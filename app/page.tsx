@@ -43,25 +43,28 @@ export default function DashboardHome() {
 
   useEffect(() => { fetchCounts(); }, []);
 
-const handleCollectInquiries = async () => {
+  const handleCollectInquiries = async () => {
     if (isCollecting) return;
     setIsCollecting(true);
     try {
-      // 1. https:// 프로토콜 추가
-      const RAILWAY_ENDPOINT = "https://sabangnet-bot-production.up.railway.app/collect";
+      // 1. [핵심 변경] Railway 봇 대신 Vercel 내부 API로 요청을 보냅니다.
+      const ENDPOINT = "/api/collect";
       
-      const response = await fetch(RAILWAY_ENDPOINT, { 
+      const response = await fetch(ENDPOINT, { 
         method: "POST",
-        // 필요 시 헤더 추가
         headers: {
           "Content-Type": "application/json",
         }
       });
 
       if (response.ok) {
-        alert("🚀 수집 시작! 완료 후 데이터를 확인하세요.");
+        // 2. 내부 API가 보내준 결과 메시지(신규 업데이트 건수)를 받아옵니다.
+        const data = await response.json();
+        alert(`🚀 ${data.message || '수집 완료!'}`);
+        
+        // 3. [센스 추가] 수집이 완료되면 대시보드 숫자를 즉시 새로고침합니다!
+        fetchCounts(); 
       } else {
-        // 404나 500 에러 발생 시 처리
         const errorData = await response.json().catch(() => ({}));
         alert(`❌ 서버 오류: ${response.status} ${errorData.message || ''}`);
       }
@@ -108,7 +111,6 @@ const handleCollectInquiries = async () => {
           <Box>
             <Typography variant="h5" sx={{ fontWeight: 700, mb: 4 }}>📊 오늘의 현황</Typography>
             
-            {/* Grid 없이 Flexbox로 카드 배치 */}
             <Box sx={{ 
               display: 'flex', 
               flexWrap: 'wrap', 

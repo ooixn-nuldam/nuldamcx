@@ -17,6 +17,8 @@
     "@mui/x-date-pickers": "^8.25.0",
     "@supabase/supabase-js": "^2.99.1",
     "date-fns": "^4.1.0",
+    "fast-xml-parser": "^5.5.8",
+    "iconv-lite": "^0.7.2",
     "next": "16.1.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
