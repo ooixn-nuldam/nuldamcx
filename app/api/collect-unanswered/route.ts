@@ -9,20 +9,19 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 export async function POST(req: Request) {
   try {
-    let rawDomain = process.env.NEXT_PUBLIC_VERCEL_URL || process.env.VERCEL_URL;
-    if (!rawDomain) {
-      rawDomain = 'nuldam-cx-dashboard.vercel.app'; // 본인 도메인으로 필수 변경!
-    }
-    const domain = rawDomain.startsWith('http') ? rawDomain : `https://${rawDomain}`;
+    // 💡 [초강력 해결책] 여기도 동일하게 도메인을 자동 추출합니다.
+    const requestUrl = new URL(req.url);
+    const domain = `${requestUrl.protocol}//${requestUrl.host}`;
 
-    // [핵심] 방금 1단계에서 만든 새로운 XML 생성 주소를 바라보게 합니다.
     const xmlUrl = `${domain}/api/sabangnet-req-unanswered`;
     const encodedXmlUrl = encodeURIComponent(xmlUrl);
     
     const sabangnetApiUrl = `https://sbadmin15.sabangnet.co.kr/RTL_API/xml_cs_info.html?xml_url=${encodedXmlUrl}`;
 
+    console.log(`[미답변 수집] 사방넷이 읽어갈 주소: ${xmlUrl}`);
+
     const response = await fetch(sabangnetApiUrl, { method: 'GET' });
-    if (!response.ok) throw new Error(`사방넷 API 서버 응답 오류: ${response.status}`);
+    if (!response.ok) throw new Error(`사방넷 서버 응답 오류: ${response.status}`);
 
     const arrayBuffer = await response.arrayBuffer();
     const decodedXml = iconv.decode(Buffer.from(arrayBuffer), 'euc-kr');
@@ -32,7 +31,13 @@ export async function POST(req: Request) {
     const dataList = jsonObj?.SABANG_CS_LIST?.DATA;
 
     if (!dataList || dataList.length === 0) {
-      return NextResponse.json({ status: 'success', message: '새로운 미답변 문의가 없습니다.', count: 0 });
+      console.log("사방넷 원본 응답:", decodedXml);
+      return NextResponse.json({ 
+        status: 'success', 
+        message: '새로운 미답변 문의가 없습니다.', 
+        count: 0,
+        debug_response: decodedXml // 디버깅용
+      });
     }
 
     let newCount = 0;
@@ -45,18 +50,10 @@ export async function POST(req: Request) {
       if (existing) continue;
 
       const { error } = await supabase.from('inquiries').insert({
-        sabangnet_num: num,
-        site_name: getVal(item.MALL_ID),
-        seller_id: getVal(item.MALL_USER_ID),
-        order_number: getVal(item.ORDER_ID),
-        inquiry_type: getVal(item.CS_GUBUN),
-        product_name: getVal(item.PRODUCT_NM),
-        content: getVal(item.CNTS),
-        answer: getVal(item.RPLY_CNTS),
-        customer_name: getVal(item.INS_NM),
-        status: '대기',
-        created_at: getVal(item.INS_DM),
-        collected_at: getVal(item.REG_DM)
+        sabangnet_num: num, site_name: getVal(item.MALL_ID), seller_id: getVal(item.MALL_USER_ID),
+        order_number: getVal(item.ORDER_ID), inquiry_type: getVal(item.CS_GUBUN), product_name: getVal(item.PRODUCT_NM),
+        content: getVal(item.CNTS), answer: getVal(item.RPLY_CNTS), customer_name: getVal(item.INS_NM),
+        status: '대기', created_at: getVal(item.INS_DM), collected_at: getVal(item.REG_DM)
       });
 
       if (!error) newCount++;
