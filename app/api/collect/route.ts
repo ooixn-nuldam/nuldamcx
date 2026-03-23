@@ -3,43 +3,49 @@ import { createClient } from '@supabase/supabase-js';
 import iconv from 'iconv-lite';
 import { XMLParser } from 'fast-xml-parser';
 
-// Supabase 초기화 (환경 변수 사용)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export async function POST(req: Request) {
   try {
-    // 1. Vercel 도메인 세팅
-    // Vercel 환경 변수가 있으면 사용하고, 없다면 직접 입력해 주세요. (로컬호스트는 사방넷이 접근할 수 없습니다!)
-    const domain = process.env.NEXT_PUBLIC_VERCEL_URL 
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` 
-      : 'https://내프로젝트.vercel.app'; // 실제 배포될 도메인으로 변경 필수
+    // 1. 도메인 세팅 (https:// 중복 방지 및 안전 처리)
+    let rawDomain = process.env.NEXT_PUBLIC_VERCEL_URL || process.env.VERCEL_URL;
+    
+    // 환경변수가 비어있을 경우를 대비한 하드코딩 (★ 본인의 실제 Vercel 도메인으로 꼭 바꿔주세요!)
+    if (!rawDomain) {
+      rawDomain = 'nuldamcx.vercel.app'; // 예: my-app.vercel.app (https:// 제외하고 입력)
+    }
 
-    // 앞서 만든 XML 요청 API 주소
+    // 도메인에 http가 안 붙어있으면 붙여줌
+    const domain = rawDomain.startsWith('http') ? rawDomain : `https://${rawDomain}`;
+
     const xmlUrl = `${domain}/api/sabangnet-req`;
     
-    // 사방넷 API 엔드포인트 (sbadmin15 기준)
-    const sabangnetApiUrl = `https://sbadmin15.sabangnet.co.kr/RTL_API/xml_cs_info.html?xml_url=${xmlUrl}`;
+    // 2. [핵심 수정] URL 인코딩 (400 에러 방지)
+    // https:// 기호 등을 사방넷 서버가 오해하지 않도록 안전하게 문자로 변환합니다.
+    const encodedXmlUrl = encodeURIComponent(xmlUrl);
+    
+    // 사방넷 API 엔드포인트
+    const sabangnetApiUrl = `https://sbadmin15.sabangnet.co.kr/RTL_API/xml_cs_info.html?xml_url=${encodedXmlUrl}`;
 
-    console.log(`요청 URL: ${sabangnetApiUrl}`);
+    console.log(`[디버그] 사방넷 요청 최종 URL: ${sabangnetApiUrl}`);
 
-    // 2. 사방넷에 데이터 요청
+    // 3. 사방넷에 데이터 요청
     const response = await fetch(sabangnetApiUrl, { method: 'GET' });
     
     if (!response.ok) {
       throw new Error(`사방넷 API 서버 응답 오류: ${response.status}`);
     }
 
-    // 3. EUC-KR 디코딩 (한글 깨짐 방지)
+    // 4. EUC-KR 디코딩
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     const decodedXml = iconv.decode(buffer, 'euc-kr');
 
-    // 4. XML 파싱 (fast-xml-parser 사용)
+    // 5. XML 파싱
     const parser = new XMLParser({
       ignoreAttributes: true,
-      // 데이터가 1건일 때도 무조건 배열로 반환하도록 설정하여 반복문 에러 방지
       isArray: (name) => name === 'DATA'
     });
     
@@ -50,26 +56,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: 'success', message: '새로운 문의사항이 없습니다.', count: 0 });
     }
 
-    // 5. Supabase 저장 로직
+    // 6. Supabase 저장
     let newCount = 0;
 
     for (const item of dataList) {
-      // CDATA 값을 안전하게 문자열로 추출하는 헬퍼 함수
       const getVal = (val: any) => val ? String(val).trim() : '';
       
       const num = getVal(item.NUM);
-      if (!num) continue; // 사방넷 고유번호가 없으면 무효 데이터로 간주
+      if (!num) continue;
 
-      // 1단계에서 만든 sabangnet_num 컬럼을 기준으로 중복 체크
       const { data: existing } = await supabase
         .from('inquiries')
         .select('id')
         .eq('sabangnet_num', num)
         .single();
 
-      if (existing) continue; // 이미 있는 데이터면 건너뜀
+      if (existing) continue;
 
-      // 신규 데이터 Insert
       const { error } = await supabase.from('inquiries').insert({
         sabangnet_num: num,
         site_name: getVal(item.MALL_ID),
@@ -80,7 +83,7 @@ export async function POST(req: Request) {
         content: getVal(item.CNTS),
         answer: getVal(item.RPLY_CNTS),
         customer_name: getVal(item.INS_NM),
-        status: '대기', // 기본 상태 지정
+        status: '대기',
         created_at: getVal(item.INS_DM),
         collected_at: getVal(item.REG_DM)
       });
@@ -94,7 +97,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ 
       status: 'success', 
-      message: `수집 완료! 신규 업데이트 건수: ${newCount}건`, 
+      message: `수집 완료! 신규 업데이트: ${newCount}건`, 
       count: newCount 
     });
 
