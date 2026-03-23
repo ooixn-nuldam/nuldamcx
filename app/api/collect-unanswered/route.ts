@@ -9,35 +9,48 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 export async function POST(req: Request) {
   try {
-    // 💡 [초강력 해결책] 여기도 동일하게 도메인을 자동 추출합니다.
     const requestUrl = new URL(req.url);
-    const domain = `${requestUrl.protocol}//${requestUrl.host}`;
+    let domain = `${requestUrl.protocol}//${requestUrl.host}`;
 
-    const xmlUrl = `${domain}/api/sabangnet-req-unanswered`;
+    // 💡 [중요] 로컬(localhost)에서 버튼을 누르면 사방넷이 접속할 수 없으므로, 실제 배포된 도메인으로 강제 고정합니다.
+    if (domain.includes('localhost')) {
+      domain = 'https://nuldamcx.vercel.app'; // ★ 본인의 실제 Vercel 도메인으로 꼭 바꿔주세요!
+    }
+
+    // 사방넷 시스템이 URL 끝에 .xml이 없으면 거부하는 경우를 대비한 안전장치 (?ext=.xml)
+    const xmlUrl = `${domain}/api/sabangnet-req-unanswered?ext=.xml`;
     const encodedXmlUrl = encodeURIComponent(xmlUrl);
     
     const sabangnetApiUrl = `https://sbadmin15.sabangnet.co.kr/RTL_API/xml_cs_info.html?xml_url=${encodedXmlUrl}`;
 
-    console.log(`[미답변 수집] 사방넷이 읽어갈 주소: ${xmlUrl}`);
+    console.log(`[사방넷 요청 URL] ${sabangnetApiUrl}`);
 
     const response = await fetch(sabangnetApiUrl, { method: 'GET' });
-    if (!response.ok) throw new Error(`사방넷 서버 응답 오류: ${response.status}`);
+    if (!response.ok) throw new Error(`사방넷 API 서버 응답 오류: ${response.status}`);
 
     const arrayBuffer = await response.arrayBuffer();
     const decodedXml = iconv.decode(Buffer.from(arrayBuffer), 'euc-kr');
 
     const parser = new XMLParser({ ignoreAttributes: true, isArray: (name) => name === 'DATA' });
     const jsonObj = parser.parse(decodedXml);
+    
     const dataList = jsonObj?.SABANG_CS_LIST?.DATA;
 
+    // 🚨 [핵심 변경] 데이터가 없을 경우 사방넷이 보낸 에러 메시지를 가로챕니다!
     if (!dataList || dataList.length === 0) {
-      console.log("사방넷 원본 응답:", decodedXml);
-      return NextResponse.json({ 
-        status: 'success', 
-        message: '새로운 미답변 문의가 없습니다.', 
-        count: 0,
-        debug_response: decodedXml // 디버깅용
-      });
+      const header = jsonObj?.SABANG_CS_LIST?.HEADER;
+      const errMsg = header?.ERR_MSG || header?.MSG;
+
+      // 사방넷이 에러 메시지를 보냈다면 화면에 팝업으로 띄웁니다.
+      if (errMsg) {
+        return NextResponse.json({ 
+          status: 'error', 
+          message: `[사방넷 거부 사유] ${errMsg}` 
+        }, { status: 400 });
+      }
+
+      // 에러 메시지도 없고 정말로 데이터가 0건인 경우
+      return NextResponse.json({ status: 'success', message: '새로운 미답변 문의가 없습니다.', count: 0 });
     }
 
     let newCount = 0;
@@ -61,6 +74,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ status: 'success', message: `미답변 수집 완료! 신규 추가: ${newCount}건`, count: newCount });
   } catch (error: any) {
+    console.error('API 수집 에러:', error);
     return NextResponse.json({ status: 'error', message: error.message }, { status: 500 });
   }
 }
