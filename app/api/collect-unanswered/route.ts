@@ -78,6 +78,7 @@ export async function POST(req: Request) {
       })
       .map((item: any) => ({
         sabangnet_num: getVal(item.NUM),
+        channel: getVal(item.MALL_ID),
         site_name:     getVal(item.MALL_ID),
         seller_id:     getVal(item.MALL_USER_ID),
         order_number:  getVal(item.ORDER_ID),
