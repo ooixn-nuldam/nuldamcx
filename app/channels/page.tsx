@@ -158,7 +158,7 @@ export default function ChannelsWorkspacePage() {
 
     try {
       // 🚨 주의: 아래 주소를 본인의 실제 Railway 주소로 꼭 변경해주세요! 🚨
-      const RAILWAY_BOT_URL = 'https://본인의_RAILWAY_주소.up.railway.app/trigger-bot';
+      const RAILWAY_BOT_URL = 'https://sabangnet-bot-production.up.railway.app/trigger-bot';
       
       const res = await fetch(RAILWAY_BOT_URL, { method: 'POST' });
       
