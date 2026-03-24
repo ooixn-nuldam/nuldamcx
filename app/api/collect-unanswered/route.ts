@@ -44,14 +44,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: 'success', message: '새로운 미답변 문의가 없습니다.', count: 0 });
     }
 
-    const getVal = (val: any) => val ? String(val).trim() : '';
+    // 사방넷 문자열값 추출
+    const getVal = (val: any): string => val ? String(val).trim() : '';
+
+    // 사방넷 날짜형식 변환: "20260222095026" → "2026-02-22 09:50:26"
+    const toTimestamp = (val: any): string | null => {
+      const s = getVal(val);
+      if (s.length !== 14) return null;
+      return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}:${s.slice(12,14)}`;
+    };
 
     // ① 수신된 NUM 목록 추출
     const incomingNums = dataList
       .map((item: any) => getVal(item.NUM))
       .filter(Boolean);
 
-    // ② 기존 NUM 일괄 조회 (DB 요청 1번으로 해결 — 핵심 개선)
+    // ② 기존 NUM 일괄 조회 (DB 요청 1번)
     const { data: existingRows, error: fetchError } = await supabase
       .from('inquiries')
       .select('sabangnet_num')
@@ -62,7 +70,7 @@ export async function POST(req: Request) {
     const existingSet = new Set((existingRows ?? []).map((r: any) => r.sabangnet_num));
     console.log(`[미답변 수집] DB 기존: ${existingSet.size}건 / 신규 후보: ${incomingNums.length - existingSet.size}건`);
 
-    // ③ 신규 건만 필터링
+    // ③ 신규 건만 필터링 + 날짜 변환 적용
     const newItems = dataList
       .filter((item: any) => {
         const num = getVal(item.NUM);
@@ -70,24 +78,24 @@ export async function POST(req: Request) {
       })
       .map((item: any) => ({
         sabangnet_num: getVal(item.NUM),
-        site_name: getVal(item.MALL_ID),
-        seller_id: getVal(item.MALL_USER_ID),
-        order_number: getVal(item.ORDER_ID),
-        inquiry_type: getVal(item.CS_GUBUN),
-        product_name: getVal(item.PRODUCT_NM),
-        content: getVal(item.CNTS),
-        answer: getVal(item.RPLY_CNTS),
+        site_name:     getVal(item.MALL_ID),
+        seller_id:     getVal(item.MALL_USER_ID),
+        order_number:  getVal(item.ORDER_ID),
+        inquiry_type:  getVal(item.CS_GUBUN),
+        product_name:  getVal(item.PRODUCT_NM),
+        content:       getVal(item.CNTS),
+        answer:        getVal(item.RPLY_CNTS),
         customer_name: getVal(item.INS_NM),
-        status: '대기',
-        created_at: getVal(item.INS_DM),
-        collected_at: getVal(item.REG_DM),
+        status:        '대기',
+        created_at:    toTimestamp(item.INS_DM),   // ✅ 변환
+        collected_at:  toTimestamp(item.REG_DM),   // ✅ 변환
       }));
 
     if (newItems.length === 0) {
       return NextResponse.json({ status: 'success', message: '신규 미답변 문의가 없습니다.', count: 0 });
     }
 
-    // ④ 100건씩 분할 일괄 insert (DB 요청 최소화 — 핵심 개선)
+    // ④ 100건씩 분할 일괄 insert
     const BATCH_SIZE = 100;
     let insertedCount = 0;
 
