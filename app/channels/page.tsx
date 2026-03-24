@@ -157,19 +157,18 @@ export default function ChannelsWorkspacePage() {
     setIsTriggeringBot(true);
 
     try {
-      // 🚨 주의: 아래 주소를 본인의 실제 Railway 주소로 꼭 변경해주세요! 🚨
-      const RAILWAY_BOT_URL = 'https://sabangnet-bot-production.up.railway.app';
-      
-      const res = await fetch(RAILWAY_BOT_URL, { method: 'POST' });
+      // 이제 외부 URL(Railway)을 직접 치지 않고, Vercel 내부 API를 호출합니다!
+      const res = await fetch('/api/trigger-bot', { method: 'POST' });
       
       if (res.ok) {
         alert('🤖 송신 봇이 백그라운드에서 실행되었습니다!\n사방넷에서 각 쇼핑몰로 답변을 전송하고 있습니다. (약 1~3분 소요)');
       } else {
-        alert('❌ 봇 실행 실패. 봇 서버 상태를 확인해주세요.');
+        const errorData = await res.json();
+        alert(`❌ 봇 실행 실패: ${errorData.message}`);
       }
     } catch (error) {
       console.error(error);
-      alert('❌ 봇 서버와 연결할 수 없습니다. (Railway 서버가 켜져 있는지 확인)');
+      alert('❌ 서버와 연결할 수 없습니다.');
     } finally {
       setIsTriggeringBot(false);
     }
