@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 export async function POST() {
   try {
     // 🚨 본인의 Railway 주소로 변경 (https:// 포함, 끝에 / 제외)
-    const RAILWAY_BOT_URL = 'https://sabangnet-bot-production.up.railway.app';
+    const RAILWAY_BOT_URL = 'https://sabangnet-bot-production.up.railway.app/trigger-bot';
 
     const response = await fetch(RAILWAY_BOT_URL, {
       method: 'POST',
