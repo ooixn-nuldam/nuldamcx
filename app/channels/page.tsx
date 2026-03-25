@@ -17,7 +17,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import SendIcon from '@mui/icons-material/Send';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
-import RocketLaunchIcon from '@mui/icons-material/RocketLaunch'; // 🚀 봇 실행용 새 아이콘
+import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 
 const SITE_TABS = ['전체', '네이버', '쿠팡', '톡스토어', '이베이', '11번가', '롯데온', '카카오 지그재그', 'toss', '기타'];
 
@@ -46,9 +46,8 @@ export default function ChannelsWorkspacePage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
   
-  // 버튼 로딩 상태 분리
-  const [isSubmitting, setIsSubmitting] = useState(false); // 사방넷 등록 로딩
-  const [isTriggeringBot, setIsTriggeringBot] = useState(false); // 봇 실행 로딩
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isTriggeringBot, setIsTriggeringBot] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -118,16 +117,17 @@ export default function ChannelsWorkspacePage() {
     setReplyTexts(prev => ({ ...prev, [id]: newText }));
   };
 
-  // 🌟 [버튼 1] 사방넷 API로 '답변저장' 상태로 등록
+  // 🌟 [버튼 1] 
   const handleBulkSubmit = async () => {
     if (selectedIds.length === 0) return;
     setIsSubmitting(true);
 
     try {
+      // 🌟 상태를 '답변저장'으로 업데이트합니다.
       const updatePromises = selectedIds.map(id => {
         return supabase
           .from('inquiries')
-          .update({ admin_reply: replyTexts[id], status: '전송대기' })
+          .update({ admin_reply: replyTexts[id], status: '답변저장' })
           .eq('id', id);
       });
       await Promise.all(updatePromises);
@@ -151,26 +151,37 @@ export default function ChannelsWorkspacePage() {
     }
   };
 
-  // 🌟 [버튼 2] 항상 보이는 봇 실행 버튼 핸들러
+  // 🌟 [버튼 2] 
   const handleTriggerBot = async () => {
     if (isTriggeringBot) return;
     setIsTriggeringBot(true);
 
     try {
-      // 이제 외부 URL(Railway)을 직접 치지 않고, Vercel 내부 API를 호출합니다!
       const res = await fetch('/api/trigger-bot', { method: 'POST' });
       
       if (res.ok) {
-        alert('🤖 송신 봇이 백그라운드에서 실행되었습니다!\n사방넷에서 각 쇼핑몰로 답변을 전송하고 있습니다. (약 1~3분 소요)');
+        alert('🤖 송신 봇에게 전송 요청을 보냈습니다!\n로컬 PC의 봇이 사방넷에서 답변을 전송한 뒤 상태를 "처리완료"로 변경할 것입니다.');
+        fetchData(); // 상태 변경 확인을 위해 데이터 새로고침
       } else {
         const errorData = await res.json();
-        alert(`❌ 봇 실행 실패: ${errorData.message}`);
+        alert(`❌ 봇 호출 실패: ${errorData.message}`);
       }
     } catch (error) {
       console.error(error);
       alert('❌ 서버와 연결할 수 없습니다.');
     } finally {
       setIsTriggeringBot(false);
+    }
+  };
+
+  // 🌟 뱃지(Chip) 색상 결정 함수
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case '대기': return { color: '#f59e0b', bgcolor: 'rgba(245, 158, 11, 0.1)' };
+      case '답변저장': return { color: '#3b82f6', bgcolor: 'rgba(59, 130, 246, 0.1)' };
+      case '전송요청': return { color: '#8b5cf6', bgcolor: 'rgba(139, 92, 246, 0.1)' }; // 봇이 확인하기 직전 상태
+      case '처리완료': return { color: '#10b981', bgcolor: 'rgba(16, 185, 129, 0.1)' }; // 봇이 완료한 상태
+      default: return { color: '#94a3b8', bgcolor: 'rgba(148, 163, 184, 0.1)' };
     }
   };
 
@@ -194,7 +205,6 @@ export default function ChannelsWorkspacePage() {
           </Tabs>
         </Box>
 
-        {/* 🌟 항상 보이는 액션 바 (좌측: 선택 등록 / 우측: 봇 실행) */}
         <Box sx={{ 
           mb: 2, p: 2, 
           bgcolor: 'rgba(30, 41, 59, 0.6)', 
@@ -204,7 +214,6 @@ export default function ChannelsWorkspacePage() {
           justifyContent: 'space-between', 
           alignItems: 'center' 
         }}>
-          {/* 좌측 액션 영역 (항목 선택 시에만 버튼 활성화) */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             {selectedIds.length > 0 ? (
               <>
@@ -229,7 +238,6 @@ export default function ChannelsWorkspacePage() {
             )}
           </Box>
 
-          {/* 우측 봇 실행 영역 (항상 활성화) */}
           <Button
             variant="contained"
             startIcon={isTriggeringBot ? <CircularProgress size={20} color="inherit" /> : <RocketLaunchIcon />}
@@ -243,11 +251,10 @@ export default function ChannelsWorkspacePage() {
               boxShadow: '0 4px 14px rgba(139, 92, 246, 0.4)' 
             }}
           >
-            {isTriggeringBot ? '봇 호출 중...' : '2. 쇼핑몰로 최종 답변 송신 (봇 작동)'}
+            {isTriggeringBot ? '요청 전송 중...' : '2. 쇼핑몰로 최종 답변 송신 (봇 작동)'}
           </Button>
         </Box>
 
-        {/* 테이블 본문 */}
         <TableContainer component={Paper} sx={{ bgcolor: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px' }}>
           <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
             <Typography sx={{ fontWeight: 600 }}>{SITE_TABS[currentTab]} 문의 목록</Typography>
@@ -277,6 +284,8 @@ export default function ChannelsWorkspacePage() {
               ) : paginatedData.length > 0 ? (
                 paginatedData.map((row) => {
                   const isItemSelected = isSelected(row.id);
+                  const statusColors = getStatusColor(row.status); // 🌟 분리한 뱃지 색상 함수 적용
+                  
                   return (
                     <TableRow 
                       key={row.id} 
@@ -301,8 +310,8 @@ export default function ChannelsWorkspacePage() {
                         <Stack spacing={1}>
                           <Chip label={row.status} size="small" sx={{
                             fontWeight: 'bold', width: 'fit-content',
-                            color: row.status === '대기' ? '#f59e0b' : row.status === '처리완료' ? '#10b981' : '#3b82f6',
-                            bgcolor: row.status === '대기' ? 'rgba(245, 158, 11, 0.1)' : row.status === '처리완료' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(59, 130, 246, 0.1)'
+                            color: statusColors.color,
+                            bgcolor: statusColors.bgcolor
                           }}/>
                           <Typography variant="body2" sx={{ fontWeight: 700, color: '#f8fafc' }}>{row.customer_name}</Typography>
                           <Typography variant="caption" sx={{ color: '#94a3b8' }}>{row.channel}</Typography>
