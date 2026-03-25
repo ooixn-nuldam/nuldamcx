@@ -123,7 +123,7 @@ export default function ChannelsWorkspacePage() {
     setIsSubmitting(true);
 
     try {
-      // 🌟 상태를 '답변저장'으로 업데이트합니다.
+      // 1. 상태를 '답변저장'으로 업데이트합니다.
       const updatePromises = selectedIds.map(id => {
         return supabase
           .from('inquiries')
@@ -132,7 +132,12 @@ export default function ChannelsWorkspacePage() {
       });
       await Promise.all(updatePromises);
       
-      const res = await fetch('/api/reply', { method: 'POST' });
+      // 2. 🌟 핵심: 어떤 ID들을 전송할지 API에 직접 알려줍니다!
+      const res = await fetch('/api/reply', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedIds }) 
+      });
       const result = await res.json();
 
       if (res.ok) {

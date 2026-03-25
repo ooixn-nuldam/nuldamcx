@@ -8,28 +8,37 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 export async function POST(req: Request) {
   try {
-    // 1. 전송할 대상이 있는지 한 번 더 확인합니다.
-    const { data: pendingItems } = await supabase.from('inquiries').select('id').eq('status', '전송대기');
+    // 1. 프론트엔드에서 보낸 ID 목록을 받습니다.
+    const body = await req.json();
+    const { ids } = body;
+
+    if (!ids || ids.length === 0) {
+        return NextResponse.json({ status: 'error', message: '전달된 ID가 없습니다.' }, { status: 400 });
+    }
+
+    // 2. 🌟 상태가 '전송대기'가 아닌 '답변저장'인 항목들을 찾습니다.
+    const { data: pendingItems } = await supabase
+      .from('inquiries')
+      .select('id')
+      .in('id', ids)
+      .eq('status', '답변저장');
     
     if (!pendingItems || pendingItems.length === 0) {
       return NextResponse.json({ status: 'success', message: '전송할 답변이 없습니다.', count: 0 });
     }
 
-    // 2. 도메인 세팅
+    // 3. 도메인 세팅
     const requestUrl = new URL(req.url);
     let domain = `${requestUrl.protocol}//${requestUrl.host}`;
     if (domain.includes('localhost')) domain = 'https://nuldamcx.vercel.app'; // 본인 도메인으로 필수 확인!
 
-    // 3. 2단계에서 만든 답변 XML 주소 연결
+    // 4. XML 주소 연결 및 사방넷 찌르기
     const xmlUrl = `${domain}/api/sabangnet-reply-xml?ext=.xml`;
     const encodedXmlUrl = encodeURIComponent(xmlUrl);
     
-    // 사방넷 답변 등록 API 엔드포인트
     const sabangnetApiUrl = `https://sbadmin15.sabangnet.co.kr/RTL_API/xml_cs_ans.html?xml_url=${encodedXmlUrl}`;
-
     console.log(`[답변 전송] 사방넷 요청 URL: ${sabangnetApiUrl}`);
 
-    // 4. 사방넷에 찌르기!
     const response = await fetch(sabangnetApiUrl, { method: 'GET' });
     if (!response.ok) throw new Error(`사방넷 API 서버 응답 오류: ${response.status}`);
 
@@ -38,9 +47,8 @@ export async function POST(req: Request) {
     
     console.log("[답변 전송] 사방넷 응답 결과:", resultText);
 
-    // 5. 전송이 완료되었으니, DB의 상태를 '전송대기'에서 '처리완료'로 바꿔줍니다.
-    const idsToUpdate = pendingItems.map(item => item.id);
-    await supabase.from('inquiries').update({ status: '처리완료' }).in('id', idsToUpdate);
+    // 🚨 5. 삭제된 부분: 여기서 상태를 '처리완료'로 바꾸면 안 됩니다!
+    // 프론트엔드 기획대로 '답변저장' 상태를 유지해야, 나중에 2번(봇) 버튼이 이걸 잡아서 일할 수 있습니다.
 
     return NextResponse.json({ 
       status: 'success', 
