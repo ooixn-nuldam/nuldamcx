@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase';
 import {
   Box, Container, Typography, IconButton, Button,
   Card, CardContent, TextField, Checkbox, Stack, CircularProgress,
-  MenuItem, Select, InputAdornment, Chip, TablePagination, Collapse, Link as MuiLink
+  MenuItem, Select, InputAdornment, Chip, TablePagination, Collapse, Link as MuiLink, Divider
 } from '@mui/material';
 
 // Icons
@@ -20,7 +20,10 @@ import {
   Search as SearchIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   KeyboardArrowUp as KeyboardArrowUpIcon,
-  OpenInNew as OpenInNewIcon,
+  LocalShipping as LocalShippingIcon,
+  Person as PersonIcon,
+  Phone as PhoneIcon,
+  Home as HomeIcon
 } from '@mui/icons-material';
 
 // ==========================================
@@ -39,13 +42,11 @@ const getStandardChannelName = (rawName: string) => CHANNEL_MAP[rawName] || rawN
 
 const getDisplayTime = (inquiryDate?: string, collectedAt?: string) => {
   if (inquiryDate && inquiryDate.includes(':')) return inquiryDate;
-  
   let formattedCollectedTime = '';
   if (collectedAt) {
     const rawString = collectedAt.split('+')[0].split('Z')[0].replace('T', ' '); 
     formattedCollectedTime = rawString.substring(0, 16);
   }
-  
   if (inquiryDate && !inquiryDate.includes(':')) {
     if (formattedCollectedTime.includes(' ')) {
       const timePart = formattedCollectedTime.split(' ')[1]; 
@@ -64,10 +65,8 @@ const getStatusColor = (status: string) => {
   return { color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.1)' };
 };
 
-// 🌟 [핵심] 사방넷 다이렉트 팝업 URL 생성 함수 (오늘 기준 ~ 3개월 전 자동 세팅)
 const getSabangnetOrderUrl = (orderNumber?: string) => {
   if (!orderNumber || orderNumber.trim() === '' || orderNumber === '-') return '#';
-
   const today = new Date();
   const threeMonthsAgo = new Date();
   threeMonthsAgo.setMonth(today.getMonth() - 3);
@@ -85,6 +84,25 @@ const getSabangnetOrderUrl = (orderNumber?: string) => {
   return `https://sbadmin15.sabangnet.co.kr/#/popup/views/pages/order/order-confirm?searchCondition=order_id&searchKeyword=${orderNumber}&svcAcntId=mw141500&mode=search&prdNmDiv=prod_nm&startDate=${startDate}&endDate=${endDate}&amtDiv=total_cost&menuNo=938`;
 };
 
+// 💡 [추가] 운송장 번호 포맷터 (4자리마다 하이픈 추가)
+const formatTrackingNumber = (num?: string) => {
+  if (!num) return '';
+  const cleaned = num.replace(/\D/g, ''); // 숫자 이외 제거
+  return cleaned.replace(/(\d{4})(?=\d)/g, '$1-').replace(/-$/, ''); // 마지막 하이픈 제거
+};
+
+// 💡 [추가] 택배사 조회 링크 생성기 (채널별 분기)
+const getTrackingUrl = (channel: string, trackingNum?: string) => {
+  if (!trackingNum) return '#';
+  const cleanNum = trackingNum.replace(/\D/g, '');
+  const standardChannel = getStandardChannelName(channel);
+  
+  if (standardChannel === '네이버' || standardChannel === '이베이') {
+    return `https://trace.cjlogistics.com/next/tracking.html?wblNo=${cleanNum}`;
+  }
+  return `https://www.lotteglogis.com/home/reservation/tracking/linkView?InvNo=${cleanNum}`;
+};
+
 const STATUS_OPTIONS = ['전체', '신규', '대기', '답변저장', '전송요청', '처리완료'];
 const MALL_OPTIONS = ['전체', '네이버', '쿠팡', '톡스토어', '이베이', '11번가', '롯데온', '지그재그', 'toss', '기타'];
 
@@ -100,6 +118,10 @@ interface DBInquiry {
   ai_draft: string | null;
   admin_reply: string | null;
   collected_at?: string; 
+  receiver_name?: string;
+  receiver_tel?: string;
+  shipping_address?: string;
+  tracking_number?: string;
 }
 
 export default function IntegratedDashboardPage() {
@@ -407,6 +429,74 @@ export default function IntegratedDashboardPage() {
                               )}
                             </span>
                           </Typography>
+
+                          {/* 💡 새로 추가된 사방넷 데이터 표기 영역 (한 줄 표기) */}
+                          {(mainItem.receiver_name || mainItem.receiver_tel || mainItem.tracking_number || mainItem.shipping_address) && (
+                            <Box sx={{ 
+                              mt: 1, p: 1, px: 1.5, 
+                              bgcolor: 'rgba(15, 23, 42, 0.4)', 
+                              borderRadius: '8px', 
+                              border: '1px solid rgba(59, 130, 246, 0.1)', 
+                              display: 'flex', 
+                              flexWrap: 'wrap', 
+                              alignItems: 'center', 
+                              gap: 2 
+                            }}>
+                              
+                              {mainItem.receiver_name && (
+                                <Typography variant="caption" sx={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <PersonIcon sx={{ fontSize: 14, color: '#94a3b8' }} /> 
+                                  <span style={{ fontWeight: 600, color: '#f8fafc' }}>수령인 : {mainItem.receiver_name}</span>
+                                </Typography>
+                              )}
+                              
+                              {mainItem.receiver_name && mainItem.receiver_tel && (
+                                <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.1)', height: '14px', my: 'auto' }} />
+                              )}
+
+                              {mainItem.receiver_tel && (
+                                <Typography variant="caption" sx={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <PhoneIcon sx={{ fontSize: 14, color: '#94a3b8' }} /> 
+                                  <span style={{ fontWeight: 600, color: '#f8fafc' }}>연락처 : {mainItem.receiver_tel}</span>
+                                </Typography>
+                              )}
+
+                              {mainItem.receiver_tel && mainItem.shipping_address && (
+                                <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.1)', height: '14px', my: 'auto' }} />
+                              )}
+
+                              {mainItem.shipping_address && (
+                                <Typography variant="caption" sx={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <HomeIcon sx={{ fontSize: 14, color: '#94a3b8' }} /> 
+                                  <span style={{ color: '#f8fafc' }}>주소 : {mainItem.shipping_address}</span>
+                                </Typography>
+                              )}
+
+                              {mainItem.shipping_address && mainItem.tracking_number && (
+                                <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.1)', height: '14px', my: 'auto' }} />
+                              )}
+
+                              {mainItem.tracking_number && (
+                                <Typography variant="caption" sx={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <LocalShippingIcon sx={{ fontSize: 14, color: '#10b981' }} /> 
+                                  <MuiLink 
+                                    href={getTrackingUrl(mainItem.channel, mainItem.tracking_number)} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    sx={{ 
+                                      ml: 0.5, fontWeight: 700, color: '#10b981', textDecoration: 'none',
+                                      '&:hover': { textDecoration: 'underline' }
+                                    }}
+                                  >
+                                    {formatTrackingNumber(mainItem.tracking_number)}
+                                  </MuiLink>
+                                </Typography>
+                              )}
+
+                            </Box>
+                          )}
+                          {/* 💡 데이터 표기 영역 끝 */}
+
                         </Box>
                         
                         <Box sx={{ bgcolor: 'rgba(15, 23, 42, 0.6)', p: 1.5, borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
