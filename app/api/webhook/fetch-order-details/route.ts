@@ -1,10 +1,12 @@
 // app/api/webhook/fetch-order-details/route.ts
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import iconv from 'iconv-lite';
+import { XMLParser } from 'fast-xml-parser';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! 
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export async function POST(req: Request) {
@@ -15,42 +17,48 @@ export async function POST(req: Request) {
 
     if (!orderId || orderId === '-') return NextResponse.json({ message: 'No Order ID' });
 
-    console.log(`[사방넷 호출] 주문번호: ${orderId}`);
+    console.log(`[사방넷 주문 조회] 주문번호: ${orderId}`);
 
-    // 💡 가이드 핵심: method 필드가 반드시 포함되어야 합니다.
-    const sabangRes = await fetch('https://api.sbfulfillment.co.kr/v2/deliveries', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json', 
-        'X-API-KEY': process.env.SABANGNET_FULFILLMENT_KEY || '' 
-      },
-      body: JSON.stringify({ 
-        method: "getDelivery", // 👈 이 부분이 누락되어 Unknown method 에러가 났던 것입니다.
-        mall_order_id: orderId // 사방넷 검색 조건에 맞게 필드명 확인 (또는 order_no)
-      })
-    });
+    // 1. 우리가 만든 XML 생성 API의 주소 만들기 (Vercel 도메인 사용)
+    const domain = 'https://nuldamcx.vercel.app'; // 본인 도메인 확인!
+    const xmlUrl = `${domain}/api/sabangnet-req-order?orderId=${orderId}&ext=.xml`;
+    const encodedXmlUrl = encodeURIComponent(xmlUrl);
+    
+    // 사방넷 어드민 주소 (sbadmin15 등 본인 호스트 번호 확인 필요)
+    const sabangnetApiUrl = `https://sbadmin15.sabangnet.co.kr/RTL_API/xml_order_info.html?xml_url=${encodedXmlUrl}`;
 
-    const orderData = await sabangRes.json();
-    console.log("사방넷 실제 응답:", JSON.stringify(orderData));
+    // 2. 사방넷에 GET 요청
+    const response = await fetch(sabangnetApiUrl, { method: 'GET' });
+    if (!response.ok) throw new Error(`사방넷 서버 오류: ${response.status}`);
 
-    // 응답 결과가 성공(true)이고 데이터가 있을 때만 업데이트
-    if (orderData.status === "true" && orderData.data) {
-      const info = orderData.data;
+    const arrayBuffer = await response.arrayBuffer();
+    const decodedXml = iconv.decode(Buffer.from(arrayBuffer), 'euc-kr'); // 결과는 EUC-KR로 옴
 
+    const parser = new XMLParser({ ignoreAttributes: true, isArray: (name) => name === 'DATA' });
+    const jsonObj = parser.parse(decodedXml);
+
+    const dataList = jsonObj?.SABANG_ORDER_LIST?.DATA;
+
+    if (dataList && dataList.length > 0) {
+      // 결과값 파싱
+      const info = dataList[0].ITEM || dataList[0];
+
+      // 3. DB 업데이트
       const { error } = await supabase
         .from('inquiries')
         .update({
-          receiver_name: info.receive_name,
-          receiver_tel: info.receive_hp || info.receive_tel,
-          shipping_address: `(${info.receive_zip}) ${info.receive_addr} ${info.receive_addr_detail || ''}`,
-          delivery_msg: info.dlv_msg
+          orderer_name: info.USER_NAME || '',
+          receiver_name: info.RECEIVE_NAME || '',
+          receiver_tel: info.RECEIVE_TEL || info.USER_TEL || '',
+          shipping_address: info.RECEIVE_ZIPCODE ? `(${info.RECEIVE_ZIPCODE}) ${info.RECEIVE_ADDR}` : (info.RECEIVE_ADDR || ''),
+          tracking_number: info.INVOICE_NO || ''
         })
         .eq('id', record.id);
 
       if (error) throw error;
-      console.log("✅ DB 업데이트 완료");
+      console.log(`✅ [${orderId}] 고객 정보 업데이트 성공!`);
     } else {
-      console.log("⚠️ 사방넷 데이터 없음:", orderData.error || "데이터 매칭 실패");
+      console.log(`⚠️ [${orderId}] 사방넷에서 주문 정보를 찾을 수 없습니다.`);
     }
 
     return NextResponse.json({ status: 'success' });
