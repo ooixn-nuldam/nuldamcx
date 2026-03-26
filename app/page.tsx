@@ -4,9 +4,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
-// 💡 [수정] 상수 및 정규화 함수 임포트
-import { CHANNEL_URL_MAP, STATUS_OPTIONS, MALL_OPTIONS } from '@/lib/constants';
-import { normalizeSiteName } from '@/lib/siteMapper';
+// 💡 [수정] siteMapper 임포트 제거, 필요한 상수만 임포트
+import { CHANNEL_URL_MAP, STATUS_OPTIONS, MALL_OPTIONS, CHANNEL_MAP } from '@/lib/constants';
 
 // MUI Components
 import {
@@ -32,8 +31,12 @@ import {
 } from '@mui/icons-material';
 
 // ==========================================
-// 🌟 1. 헬퍼 함수
+// 🌟 1. 상수 및 헬퍼 함수
 // ==========================================
+
+
+// 💡 siteMapper 대신 원래의 간단한 매핑 함수 사용
+const getStandardChannelName = (rawName: string) => CHANNEL_MAP[rawName] || rawName;
 
 // 어드민 접속 URL 가져오기
 const getChannelUrl = (channelName: string) => CHANNEL_URL_MAP[channelName] || '#';
@@ -98,7 +101,7 @@ const formatTrackingNumber = (num?: string) => {
 const getTrackingUrl = (channel: string, trackingNum?: string) => {
   if (!trackingNum) return '#';
   const cleanNum = trackingNum.replace(/\D/g, '');
-  const standardChannel = normalizeSiteName(channel);
+  const standardChannel = getStandardChannelName(channel); // 💡 정규화 함수 변경
   
   if (standardChannel === '네이버' || standardChannel === '이베이') {
     return `https://trace.cjlogistics.com/next/tracking.html?wblNo=${cleanNum}`;
@@ -122,6 +125,7 @@ interface DBInquiry {
   receiver_tel?: string;
   shipping_address?: string;
   tracking_number?: string;
+  product_name?: string; // 상품명 필드
 }
 
 export default function IntegratedDashboardPage() {
@@ -171,7 +175,7 @@ export default function IntegratedDashboardPage() {
 
     const { data, error } = await supabase
       .from('inquiries')
-      .select('*'); // JS에서 직접 정렬할 것이므로 order 제거
+      .select('*');
 
     if (!error && data) {
       setAllData(data);
@@ -192,7 +196,7 @@ export default function IntegratedDashboardPage() {
   // ==========================================
   const filteredData = useMemo(() => {
     return allData.filter(item => {
-      const standardChannel = normalizeSiteName(item.channel);
+      const standardChannel = getStandardChannelName(item.channel); // 💡 정규화 함수 변경
       if (filterStatus !== '전체' && item.status !== filterStatus) return false;
       if (filterMall !== '전체') {
         if (filterMall === '기타') {
@@ -207,7 +211,8 @@ export default function IntegratedDashboardPage() {
         const isMatch = 
           (item.customer_name && item.customer_name.toLowerCase().includes(query)) ||
           (item.order_number && item.order_number.toLowerCase().includes(query)) ||
-          (item.content && item.content.toLowerCase().includes(query));
+          (item.content && item.content.toLowerCase().includes(query)) ||
+          (item.product_name && item.product_name.toLowerCase().includes(query));
         if (!isMatch) return false;
       }
       return true;
@@ -217,7 +222,6 @@ export default function IntegratedDashboardPage() {
   const groupedData = useMemo(() => {
     const groupsMap: Record<string, DBInquiry[]> = {};
 
-    // 1. 그룹화
     filteredData.forEach(item => {
       const orderNum = item.order_number?.trim();
       const key = (orderNum && orderNum !== '-' && orderNum !== '') ? orderNum : `single-${item.id}`;
@@ -227,12 +231,10 @@ export default function IntegratedDashboardPage() {
 
     const groupsArray = Object.values(groupsMap);
     
-    // 💡 [수정] 2. 그룹 내부 정렬 (시간순 내림차순)
     groupsArray.forEach(group => {
       group.sort((a, b) => getSafeTime(b.inquiry_date, b.collected_at) - getSafeTime(a.inquiry_date, a.collected_at));
     });
 
-    // 💡 [수정] 3. 그룹 간 전체 정렬 (각 그룹의 가장 '최신' 아이템 시간 기준)
     groupsArray.sort((groupA, groupB) => {
       const timeA = getSafeTime(groupA[0].inquiry_date, groupA[0].collected_at);
       const timeB = getSafeTime(groupB[0].inquiry_date, groupB[0].collected_at);
@@ -354,9 +356,8 @@ export default function IntegratedDashboardPage() {
           ))}
         </Box>
 
-        {/* 💡 [수정] 슈퍼 필터 바 초압축 (글씨 및 패딩 축소) */}
+        {/* --- 슈퍼 필터 바 --- */}
         <Box sx={{ px: 1.5, py: 1, mb: 2, bgcolor: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          
           <Box sx={{ flex: 1, minWidth: '90px' }}>
             <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>정렬</Typography>
             <Select fullWidth size="small" value={sortOrder} onChange={(e) => { setSortOrder(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', color: '#f8fafc', borderRadius: '6px', fontSize: '0.8rem', height: '32px', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' } }}>
@@ -364,41 +365,35 @@ export default function IntegratedDashboardPage() {
               <MenuItem value="asc" sx={{ fontSize: '0.8rem' }}>오래된순</MenuItem>
             </Select>
           </Box>
-
           <Box sx={{ flex: 1, minWidth: '80px' }}>
             <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>상태</Typography>
             <Select fullWidth size="small" value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', color: '#f8fafc', borderRadius: '6px', fontSize: '0.8rem', height: '32px', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' } }}>
               {STATUS_OPTIONS.map(opt => <MenuItem key={opt} value={opt} sx={{ fontSize: '0.8rem' }}>{opt}</MenuItem>)}
             </Select>
           </Box>
-
           <Box sx={{ flex: 1, minWidth: '100px' }}>
             <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>쇼핑몰</Typography>
             <Select fullWidth size="small" value={filterMall} onChange={(e) => { setFilterMall(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', color: '#f8fafc', borderRadius: '6px', fontSize: '0.8rem', height: '32px', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' } }}>
               {MALL_OPTIONS.map(opt => <MenuItem key={opt} value={opt} sx={{ fontSize: '0.8rem' }}>{opt}</MenuItem>)}
             </Select>
           </Box>
-
           <Box sx={{ flex: 1, minWidth: '90px' }}>
             <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>카테고리</Typography>
             <Select fullWidth size="small" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', color: '#f8fafc', borderRadius: '6px', fontSize: '0.8rem', height: '32px', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' } }}>
               <MenuItem value="전체" sx={{ fontSize: '0.8rem' }}>전체</MenuItem>
             </Select>
           </Box>
-
           <Box sx={{ flex: 1.2, minWidth: '110px' }}>
             <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>시작일</Typography>
             <TextField type="date" fullWidth size="small" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', borderRadius: '6px', input: { color: '#f8fafc', colorScheme: 'dark', fontSize: '0.8rem', py: '6.5px' }, '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' } }} />
           </Box>
-
           <Box sx={{ flex: 1.2, minWidth: '110px' }}>
             <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>종료일</Typography>
             <TextField type="date" fullWidth size="small" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', borderRadius: '6px', input: { color: '#f8fafc', colorScheme: 'dark', fontSize: '0.8rem', py: '6.5px' }, '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' } }} />
           </Box>
-
           <Box sx={{ flex: 2, minWidth: '180px' }}>
             <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>검색</Typography>
-            <TextField fullWidth size="small" placeholder="고객명, 내용, 주문번호" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }} InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ color: '#64748b', fontSize: '1rem' }} /></InputAdornment>) }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', borderRadius: '6px', input: { color: '#f8fafc', fontSize: '0.8rem', py: '6.5px' }, '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' } }} />
+            <TextField fullWidth size="small" placeholder="고객명, 내용, 주문번호, 상품명" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }} InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ color: '#64748b', fontSize: '1rem' }} /></InputAdornment>) }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', borderRadius: '6px', input: { color: '#f8fafc', fontSize: '0.8rem', py: '6.5px' }, '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' } }} />
           </Box>
         </Box>
 
@@ -444,7 +439,7 @@ export default function IntegratedDashboardPage() {
               const expanded = !!expandedGroups[groupKey];
               
               const isMainSelected = selectedIds.includes(mainItem.id);
-              const standardChannel = normalizeSiteName(mainItem.channel);
+              const standardChannel = getStandardChannelName(mainItem.channel); // 💡 정규화 함수 변경 적용
               const mainStatusColor = getStatusColor(mainItem.status);
               const channelAdminUrl = getChannelUrl(standardChannel);
 
@@ -464,7 +459,9 @@ export default function IntegratedDashboardPage() {
                               {mainItem.customer_name}
                             </Typography>
                             <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.2)', my: 0.5 }} />
-                            <Typography variant="body2" sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center' }}>
+                            
+                            {/* 💡 주문번호와 상품명이 함께 표시되는 부분 */}
+                            <Typography variant="body2" sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
                               주문번호: 
                               {mainItem.order_number && mainItem.order_number !== '-' ? (
                                 <MuiLink 
@@ -477,6 +474,13 @@ export default function IntegratedDashboardPage() {
                                 </MuiLink>
                               ) : (
                                 <span style={{ marginLeft: '4px' }}>-</span>
+                              )}
+
+                              {mainItem.product_name && mainItem.product_name !== '-' && (
+                                <>
+                                  <span style={{ margin: '0 8px', color: 'rgba(255,255,255,0.2)' }}>|</span>
+                                  <span style={{ color: '#cbd5e1', fontWeight: 500 }}>{mainItem.product_name}</span>
+                                </>
                               )}
                             </Typography>
 
@@ -627,7 +631,7 @@ export default function IntegratedDashboardPage() {
                               {subItems.map(subItem => {
                                 const isSubSelected = selectedIds.includes(subItem.id);
                                 const subStatusColor = getStatusColor(subItem.status);
-                                const subChannelAdminUrl = getChannelUrl(normalizeSiteName(subItem.channel));
+                                const subChannelAdminUrl = getChannelUrl(getStandardChannelName(subItem.channel)); // 💡 정규화 함수 변경 적용
 
                                 return (
                                   <Box key={subItem.id} sx={{ display: 'flex', gap: 1.5 }}>
