@@ -23,7 +23,8 @@ import {
   LocalShipping as LocalShippingIcon,
   Person as PersonIcon,
   Phone as PhoneIcon,
-  Home as HomeIcon
+  Home as HomeIcon,
+  SmartToy as SmartToyIcon
 } from '@mui/icons-material';
 
 // ==========================================
@@ -84,14 +85,12 @@ const getSabangnetOrderUrl = (orderNumber?: string) => {
   return `https://sbadmin15.sabangnet.co.kr/#/popup/views/pages/order/order-confirm?searchCondition=order_id&searchKeyword=${orderNumber}&svcAcntId=mw141500&mode=search&prdNmDiv=prod_nm&startDate=${startDate}&endDate=${endDate}&amtDiv=total_cost&menuNo=938`;
 };
 
-// 운송장 번호 포맷터 (4자리마다 하이픈 추가)
 const formatTrackingNumber = (num?: string) => {
   if (!num) return '';
   const cleaned = num.replace(/\D/g, ''); 
   return cleaned.replace(/(\d{4})(?=\d)/g, '$1-').replace(/-$/, ''); 
 };
 
-// 택배사 조회 링크 생성기
 const getTrackingUrl = (channel: string, trackingNum?: string) => {
   if (!trackingNum) return '#';
   const cleanNum = trackingNum.replace(/\D/g, '');
@@ -152,6 +151,9 @@ export default function IntegratedDashboardPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTriggeringBot, setIsTriggeringBot] = useState(false);
   const [isCollectingAll, setIsCollectingAll] = useState(false);
+  
+  const [isGeneratingAI, setIsGeneratingAI] = useState<Record<string, boolean>>({});
+  const [isGeneratingBulkAI, setIsGeneratingBulkAI] = useState(false); // 💡 일괄 생성용 상태
 
   // ==========================================
   // 📡 3. 데이터 페칭
@@ -275,6 +277,50 @@ export default function IntegratedDashboardPage() {
   const handleBulkSubmit = async () => { setIsSubmitting(true); try { await Promise.all(selectedIds.map(id => supabase.from('inquiries').update({ admin_reply: replyTexts[id], status: '답변저장' }).eq('id', id))); await fetch('/api/reply', { method: 'POST', body: JSON.stringify({ ids: selectedIds }) }); fetchDataAndCounts(); } finally { setIsSubmitting(false); } };
   const handleTriggerBot = async () => { setIsTriggeringBot(true); try { await fetch('/api/trigger-bot', { method: 'POST' }); fetchDataAndCounts(); } finally { setIsTriggeringBot(false); } };
 
+  // 개별 AI 답변 생성
+  const handleGenerateAI = async (id: string) => {
+    setIsGeneratingAI(prev => ({ ...prev, [id]: true }));
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      setReplyTexts(prev => ({ ...prev, [id]: "개별 생성된 AI 답변입니다. (봇 연동 대기 중)" }));
+    } catch (error) {
+      console.error("AI 생성 실패:", error);
+    } finally {
+      setIsGeneratingAI(prev => ({ ...prev, [id]: false }));
+    }
+  };
+
+  // 💡 [추가] 일괄 AI 답변 생성
+  const handleBulkGenerateAI = async () => {
+    if (selectedIds.length === 0) return;
+    
+    setIsGeneratingBulkAI(true);
+    
+    // 선택된 모든 항목에 대해 개별 스피너도 활성화
+    const loadingState: Record<string, boolean> = {};
+    selectedIds.forEach(id => { loadingState[id] = true; });
+    setIsGeneratingAI(prev => ({ ...prev, ...loadingState }));
+
+    try {
+      // TODO: 봇 일괄 생성 API 연동 (배열로 ID를 넘기거나 Promise.all 사용)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      const newReplies: Record<string, string> = {};
+      selectedIds.forEach(id => {
+        newReplies[id] = "선택된 항목에 대해 일괄 생성된 AI 답변입니다.";
+      });
+      
+      setReplyTexts(prev => ({ ...prev, ...newReplies }));
+    } catch (error) {
+      console.error("AI 일괄 생성 실패:", error);
+    } finally {
+      setIsGeneratingBulkAI(false);
+      const doneState: Record<string, boolean> = {};
+      selectedIds.forEach(id => { doneState[id] = false; });
+      setIsGeneratingAI(prev => ({ ...prev, ...doneState }));
+    }
+  };
+
   // ==========================================
   // 🎨 6. 화면 렌더링 (UI)
   // ==========================================
@@ -367,6 +413,24 @@ export default function IntegratedDashboardPage() {
           </Box>
           <Stack direction="row" spacing={1}>
             <Button size="small" variant="outlined" startIcon={isCollectingAll ? <CircularProgress size={14} color="inherit" /> : <CloudDownloadIcon fontSize="small" />} onClick={handleCollectAll} disabled={isCollectingAll} sx={{ borderColor: 'rgba(255,255,255,0.2)', color: '#cbd5e1', fontWeight: 600, '&:hover': { borderColor: '#f8fafc', bgcolor: 'rgba(255,255,255,0.05)' } }}>새로 수집</Button>
+            
+            {/* 💡 [추가] AI 답변 일괄 생성 버튼 */}
+            <Button 
+              size="small" 
+              variant="contained" 
+              startIcon={isGeneratingBulkAI ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeIcon fontSize="small" />} 
+              onClick={handleBulkGenerateAI} 
+              disabled={isGeneratingBulkAI || selectedIds.length === 0} 
+              sx={{ 
+                bgcolor: '#ec4899', color: '#fff', fontWeight: 600, 
+                boxShadow: '0 4px 14px rgba(236, 72, 153, 0.4)',
+                '&:hover': { bgcolor: '#db2777' },
+                '&.Mui-disabled': { bgcolor: 'rgba(236, 72, 153, 0.3)', color: '#fbcfe8' }
+              }}
+            >
+              AI 답변 생성
+            </Button>
+
             <Button size="small" variant="contained" startIcon={<SendIcon fontSize="small" />} onClick={handleBulkSubmit} disabled={isSubmitting || selectedIds.length === 0} sx={{ bgcolor: '#3b82f6', color: '#fff', fontWeight: 600, boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)' }}>1. 답변저장 (임시)</Button>
             <Button size="small" variant="contained" startIcon={isTriggeringBot ? <CircularProgress size={14} color="inherit" /> : <RocketLaunchIcon fontSize="small" />} onClick={handleTriggerBot} disabled={isTriggeringBot || selectedIds.length === 0} sx={{ bgcolor: '#8b5cf6', color: '#fff', fontWeight: 600, '&:hover': { bgcolor: '#7c3aed' }, boxShadow: '0 4px 14px rgba(139, 92, 246, 0.4)' }}>2. 쇼핑몰 송신 (봇)</Button>
           </Stack>
@@ -397,17 +461,12 @@ export default function IntegratedDashboardPage() {
                       </Box>
                       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                         
-                        {/* 🌟 수정된 상단 1줄 요약 영역 🌟 */}
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                            {/* 1. 문의자 (고객명) */}
                             <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#f8fafc' }}>
                               {mainItem.customer_name}
                             </Typography>
-
                             <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.2)', my: 0.5 }} />
-
-                            {/* 2. 주문번호 */}
                             <Typography variant="body2" sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center' }}>
                               주문번호: 
                               {mainItem.order_number && mainItem.order_number !== '-' ? (
@@ -424,22 +483,18 @@ export default function IntegratedDashboardPage() {
                               )}
                             </Typography>
 
-                            {/* 3. 쇼핑몰 & 상태 */}
                             <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: 0.5 }}>
                               <Chip label={standardChannel} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.1)', color: '#f8fafc', fontWeight: 600, borderRadius: '4px', height: '22px', fontSize: '0.7rem' }} />
                               <Chip label={mainItem.status} size="small" sx={{ bgcolor: mainStatusColor.bg, color: mainStatusColor.color, fontWeight: 700, borderRadius: '4px', height: '22px', fontSize: '0.7rem' }} />
                             </Stack>
                           </Box>
 
-                          {/* 우측 끝: 문의시간 */}
                           <Typography variant="caption" sx={{ color: '#64748b' }}>
                             문의 일시 : {getDisplayTime(mainItem.inquiry_date, mainItem.collected_at)}
                           </Typography>
                         </Box>
-                        {/* 🌟 요약 영역 끝 🌟 */}
                         
                         <Box>
-                          {/* 💡 사방넷 상세 데이터 표기 영역 (수령인 / 연락처 / 주소 / 송장) */}
                           {(mainItem.receiver_name || mainItem.receiver_tel || mainItem.tracking_number || mainItem.shipping_address) && (
                             <Box sx={{ 
                               mt: 0.5, p: 1, px: 1.5, 
@@ -451,40 +506,33 @@ export default function IntegratedDashboardPage() {
                               alignItems: 'center', 
                               gap: 2 
                             }}>
-                              
                               {mainItem.receiver_name && (
                                 <Typography variant="caption" sx={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                   <PersonIcon sx={{ fontSize: 14, color: '#94a3b8' }} /> 
                                   <span style={{ fontWeight: 600, color: '#f8fafc' }}>수령인 : {mainItem.receiver_name}</span>
                                 </Typography>
                               )}
-                              
                               {mainItem.receiver_name && mainItem.receiver_tel && (
                                 <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.1)', height: '14px', my: 'auto' }} />
                               )}
-
                               {mainItem.receiver_tel && (
                                 <Typography variant="caption" sx={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                   <PhoneIcon sx={{ fontSize: 14, color: '#94a3b8' }} /> 
                                   <span style={{ fontWeight: 600, color: '#f8fafc' }}>연락처 : {mainItem.receiver_tel}</span>
                                 </Typography>
                               )}
-
                               {mainItem.receiver_tel && mainItem.shipping_address && (
                                 <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.1)', height: '14px', my: 'auto' }} />
                               )}
-
                               {mainItem.shipping_address && (
                                 <Typography variant="caption" sx={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                   <HomeIcon sx={{ fontSize: 14, color: '#94a3b8' }} /> 
                                   <span style={{ color: '#f8fafc' }}>주소 : {mainItem.shipping_address}</span>
                                 </Typography>
                               )}
-
                               {mainItem.shipping_address && mainItem.tracking_number && (
                                 <Divider orientation="vertical" flexItem sx={{ borderColor: 'rgba(255,255,255,0.1)', height: '14px', my: 'auto' }} />
                               )}
-
                               {mainItem.tracking_number && (
                                 <Typography variant="caption" sx={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                   <LocalShippingIcon sx={{ fontSize: 14, color: '#10b981' }} /> 
@@ -501,25 +549,55 @@ export default function IntegratedDashboardPage() {
                                   </MuiLink>
                                 </Typography>
                               )}
-
                             </Box>
                           )}
-                          {/* 💡 데이터 표기 영역 끝 */}
-
                         </Box>
                         
                         <Box sx={{ bgcolor: 'rgba(15, 23, 42, 0.6)', p: 1.5, borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
                           <Typography variant="body2" sx={{ color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{mainItem.content}</Typography>
                         </Box>
                         
-                        <Box>
-                          <TextField multiline fullWidth minRows={1} maxRows={6} size="small" value={replyTexts[mainItem.id] !== undefined ? replyTexts[mainItem.id] : ''} onChange={(e) => handleReplyChange(mainItem.id, e.target.value)} placeholder="답변 작성" sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'rgba(15, 23, 42, 0.8)', color: '#f8fafc', borderRadius: '8px', fontSize: '0.85rem', p: 1.5, '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' }, '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.2)' }, '&.Mui-focused fieldset': { borderColor: '#3b82f6' } } }} />
-                          {mainItem.ai_draft && !mainItem.admin_reply && (
-                            <Typography variant="caption" sx={{ color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-                              <AutoAwesomeIcon sx={{ fontSize: 12 }} /> AI 작성 초안
-                            </Typography>
-                          )}
+                        <Box sx={{ position: 'relative' }}>
+                          <TextField 
+                            multiline fullWidth minRows={2} maxRows={6} size="small" 
+                            value={replyTexts[mainItem.id] !== undefined ? replyTexts[mainItem.id] : ''} 
+                            onChange={(e) => handleReplyChange(mainItem.id, e.target.value)} 
+                            placeholder="답변 작성" 
+                            sx={{ 
+                              '& .MuiOutlinedInput-root': { 
+                                bgcolor: 'rgba(15, 23, 42, 0.8)', color: '#f8fafc', borderRadius: '8px', fontSize: '0.85rem', p: 1.5, pr: 12,
+                                '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' }, 
+                                '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.2)' }, 
+                                '&.Mui-focused fieldset': { borderColor: '#3b82f6' } 
+                              } 
+                            }} 
+                          />
+                          
+                          <Button
+                            size="small"
+                            variant="contained"
+                            disabled={isGeneratingAI[mainItem.id]}
+                            onClick={() => handleGenerateAI(mainItem.id)}
+                            startIcon={isGeneratingAI[mainItem.id] ? <CircularProgress size={12} color="inherit" /> : <SmartToyIcon sx={{ fontSize: 16 }} />}
+                            sx={{
+                              position: 'absolute', right: 8, bottom: 8,
+                              bgcolor: 'rgba(139, 92, 246, 0.2)', color: '#a78bfa',
+                              border: '1px solid rgba(139, 92, 246, 0.3)',
+                              fontWeight: 600, fontSize: '0.7rem', height: '24px', py: 0, px: 1,
+                              borderRadius: '6px',
+                              '&:hover': { bgcolor: 'rgba(139, 92, 246, 0.4)' },
+                              '&.Mui-disabled': { bgcolor: 'transparent', color: '#64748b', borderColor: 'transparent' }
+                            }}
+                          >
+                            {isGeneratingAI[mainItem.id] ? '생성 중...' : 'AI 답변'}
+                          </Button>
                         </Box>
+                        
+                        {mainItem.ai_draft && !mainItem.admin_reply && (
+                          <Typography variant="caption" sx={{ color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 0.5, mt: -1 }}>
+                            <AutoAwesomeIcon sx={{ fontSize: 12 }} /> AI 작성 초안
+                          </Typography>
+                        )}
 
                         {isMultiple && (
                           <Box sx={{ mt: 1, textAlign: 'center' }}>
@@ -554,8 +632,34 @@ export default function IntegratedDashboardPage() {
                                       <Box sx={{ bgcolor: 'rgba(15, 23, 42, 0.3)', p: 1.5, borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
                                         <Typography variant="body2" sx={{ color: '#94a3b8', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{subItem.content}</Typography>
                                       </Box>
-                                      <Box>
-                                        <TextField fullWidth minRows={1} maxRows={4} size="small" value={replyTexts[subItem.id] !== undefined ? replyTexts[subItem.id] : ''} onChange={(e) => handleReplyChange(subItem.id, e.target.value)} placeholder="답변 작성" sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'rgba(15, 23, 42, 0.4)', color: '#94a3b8', borderRadius: '8px', fontSize: '0.8rem', p: 1, '& fieldset': { borderColor: 'rgba(255,255,255,0.05)' } } }} />
+                                      <Box sx={{ position: 'relative' }}>
+                                        <TextField 
+                                          fullWidth minRows={1} maxRows={4} size="small" 
+                                          value={replyTexts[subItem.id] !== undefined ? replyTexts[subItem.id] : ''} 
+                                          onChange={(e) => handleReplyChange(subItem.id, e.target.value)} 
+                                          placeholder="답변 작성" 
+                                          sx={{ 
+                                            '& .MuiOutlinedInput-root': { 
+                                              bgcolor: 'rgba(15, 23, 42, 0.4)', color: '#94a3b8', borderRadius: '8px', fontSize: '0.8rem', p: 1, pr: 12,
+                                              '& fieldset': { borderColor: 'rgba(255,255,255,0.05)' } 
+                                            } 
+                                          }} 
+                                        />
+                                        <Button
+                                          size="small"
+                                          disabled={isGeneratingAI[subItem.id]}
+                                          onClick={() => handleGenerateAI(subItem.id)}
+                                          startIcon={isGeneratingAI[subItem.id] ? <CircularProgress size={10} color="inherit" /> : <SmartToyIcon sx={{ fontSize: 14 }} />}
+                                          sx={{
+                                            position: 'absolute', right: 4, bottom: 4,
+                                            bgcolor: 'rgba(139, 92, 246, 0.1)', color: '#a78bfa',
+                                            fontWeight: 600, fontSize: '0.65rem', height: '20px', py: 0, px: 1,
+                                            borderRadius: '4px',
+                                            '&:hover': { bgcolor: 'rgba(139, 92, 246, 0.3)' }
+                                          }}
+                                        >
+                                          AI 답변
+                                        </Button>
                                       </Box>
                                     </Box>
                                   </Box>
