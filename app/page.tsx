@@ -4,6 +4,10 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
+// 💡 [수정] 상수 및 정규화 함수 임포트
+import { CHANNEL_URL_MAP, STATUS_OPTIONS, MALL_OPTIONS } from '@/lib/constants';
+import { normalizeSiteName } from '@/lib/siteMapper';
+
 // MUI Components
 import {
   Box, Container, Typography, IconButton, Button,
@@ -28,18 +32,18 @@ import {
 } from '@mui/icons-material';
 
 // ==========================================
-// 🌟 1. 상수 및 헬퍼 함수
+// 🌟 1. 헬퍼 함수
 // ==========================================
-const CHANNEL_MAP: Record<string, string> = {
-  '스마트 스토어': '네이버',
-  '스마트스토어': '네이버',
-  'ESM지마켓': '이베이',
-  'ESM옥션': '이베이',
-  '카카오톡스토어': '톡스토어',
-  '카카오 지그재그': '지그재그',
-};
 
-const getStandardChannelName = (rawName: string) => CHANNEL_MAP[rawName] || rawName;
+// 어드민 접속 URL 가져오기
+const getChannelUrl = (channelName: string) => CHANNEL_URL_MAP[channelName] || '#';
+
+// 날짜 및 시간 안전 파싱 (정렬용)
+const getSafeTime = (inquiryDate?: string, collectedAt?: string) => {
+  const t1 = inquiryDate ? new Date(inquiryDate).getTime() : 0;
+  const t2 = collectedAt ? new Date(collectedAt).getTime() : 0;
+  return Math.max(t1, t2); // 둘 중 더 늦은(최신) 시간 반환
+};
 
 const getDisplayTime = (inquiryDate?: string, collectedAt?: string) => {
   if (inquiryDate && inquiryDate.includes(':')) return inquiryDate;
@@ -94,16 +98,13 @@ const formatTrackingNumber = (num?: string) => {
 const getTrackingUrl = (channel: string, trackingNum?: string) => {
   if (!trackingNum) return '#';
   const cleanNum = trackingNum.replace(/\D/g, '');
-  const standardChannel = getStandardChannelName(channel);
+  const standardChannel = normalizeSiteName(channel);
   
   if (standardChannel === '네이버' || standardChannel === '이베이') {
     return `https://trace.cjlogistics.com/next/tracking.html?wblNo=${cleanNum}`;
   }
   return `https://www.lotteglogis.com/home/reservation/tracking/linkView?InvNo=${cleanNum}`;
 };
-
-const STATUS_OPTIONS = ['전체', '신규', '대기', '답변저장', '전송요청', '처리완료'];
-const MALL_OPTIONS = ['전체', '네이버', '쿠팡', '톡스토어', '이베이', '11번가', '롯데온', '지그재그', 'toss', '기타'];
 
 interface DBInquiry {
   id: string;
@@ -153,7 +154,7 @@ export default function IntegratedDashboardPage() {
   const [isCollectingAll, setIsCollectingAll] = useState(false);
   
   const [isGeneratingAI, setIsGeneratingAI] = useState<Record<string, boolean>>({});
-  const [isGeneratingBulkAI, setIsGeneratingBulkAI] = useState(false); // 💡 일괄 생성용 상태
+  const [isGeneratingBulkAI, setIsGeneratingBulkAI] = useState(false);
 
   // ==========================================
   // 📡 3. 데이터 페칭
@@ -170,9 +171,7 @@ export default function IntegratedDashboardPage() {
 
     const { data, error } = await supabase
       .from('inquiries')
-      .select('*')
-      .order('inquiry_date', { ascending: false })
-      .order('collected_at', { ascending: false });
+      .select('*'); // JS에서 직접 정렬할 것이므로 order 제거
 
     if (!error && data) {
       setAllData(data);
@@ -193,7 +192,7 @@ export default function IntegratedDashboardPage() {
   // ==========================================
   const filteredData = useMemo(() => {
     return allData.filter(item => {
-      const standardChannel = getStandardChannelName(item.channel);
+      const standardChannel = normalizeSiteName(item.channel);
       if (filterStatus !== '전체' && item.status !== filterStatus) return false;
       if (filterMall !== '전체') {
         if (filterMall === '기타') {
@@ -218,6 +217,7 @@ export default function IntegratedDashboardPage() {
   const groupedData = useMemo(() => {
     const groupsMap: Record<string, DBInquiry[]> = {};
 
+    // 1. 그룹화
     filteredData.forEach(item => {
       const orderNum = item.order_number?.trim();
       const key = (orderNum && orderNum !== '-' && orderNum !== '') ? orderNum : `single-${item.id}`;
@@ -227,17 +227,15 @@ export default function IntegratedDashboardPage() {
 
     const groupsArray = Object.values(groupsMap);
     
+    // 💡 [수정] 2. 그룹 내부 정렬 (시간순 내림차순)
     groupsArray.forEach(group => {
-      group.sort((a, b) => {
-        const timeA = new Date(a.inquiry_date || a.collected_at || 0).getTime();
-        const timeB = new Date(b.inquiry_date || b.collected_at || 0).getTime();
-        return timeB - timeA; 
-      });
+      group.sort((a, b) => getSafeTime(b.inquiry_date, b.collected_at) - getSafeTime(a.inquiry_date, a.collected_at));
     });
 
+    // 💡 [수정] 3. 그룹 간 전체 정렬 (각 그룹의 가장 '최신' 아이템 시간 기준)
     groupsArray.sort((groupA, groupB) => {
-      const timeA = new Date(groupA[0].inquiry_date || groupA[0].collected_at || 0).getTime();
-      const timeB = new Date(groupB[0].inquiry_date || groupB[0].collected_at || 0).getTime();
+      const timeA = getSafeTime(groupA[0].inquiry_date, groupA[0].collected_at);
+      const timeB = getSafeTime(groupB[0].inquiry_date, groupB[0].collected_at);
       return sortOrder === 'desc' ? timeB - timeA : timeA - timeB; 
     });
 
@@ -277,7 +275,6 @@ export default function IntegratedDashboardPage() {
   const handleBulkSubmit = async () => { setIsSubmitting(true); try { await Promise.all(selectedIds.map(id => supabase.from('inquiries').update({ admin_reply: replyTexts[id], status: '답변저장' }).eq('id', id))); await fetch('/api/reply', { method: 'POST', body: JSON.stringify({ ids: selectedIds }) }); fetchDataAndCounts(); } finally { setIsSubmitting(false); } };
   const handleTriggerBot = async () => { setIsTriggeringBot(true); try { await fetch('/api/trigger-bot', { method: 'POST' }); fetchDataAndCounts(); } finally { setIsTriggeringBot(false); } };
 
-  // 개별 AI 답변 생성
   const handleGenerateAI = async (id: string) => {
     setIsGeneratingAI(prev => ({ ...prev, [id]: true }));
     try {
@@ -290,26 +287,19 @@ export default function IntegratedDashboardPage() {
     }
   };
 
-  // 💡 [추가] 일괄 AI 답변 생성
   const handleBulkGenerateAI = async () => {
     if (selectedIds.length === 0) return;
-    
     setIsGeneratingBulkAI(true);
-    
-    // 선택된 모든 항목에 대해 개별 스피너도 활성화
     const loadingState: Record<string, boolean> = {};
     selectedIds.forEach(id => { loadingState[id] = true; });
     setIsGeneratingAI(prev => ({ ...prev, ...loadingState }));
 
     try {
-      // TODO: 봇 일괄 생성 API 연동 (배열로 ID를 넘기거나 Promise.all 사용)
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
       const newReplies: Record<string, string> = {};
       selectedIds.forEach(id => {
         newReplies[id] = "선택된 항목에 대해 일괄 생성된 AI 답변입니다.";
       });
-      
       setReplyTexts(prev => ({ ...prev, ...newReplies }));
     } catch (error) {
       console.error("AI 일괄 생성 실패:", error);
@@ -334,7 +324,7 @@ export default function IntegratedDashboardPage() {
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'transparent', color: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
       <Box component="header" sx={{ borderBottom: '1px solid rgba(255,255,255,0.05)', backdropFilter: 'blur(10px)', bgcolor: 'rgba(15, 23, 42, 0.6)', position: 'sticky', top: 0, zIndex: 50 }}>
-        <Container maxWidth="xl" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 2 }}>
+        <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
             <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: '-1px' }}>
               <span style={{ color: '#3b82f6' }}>N</span>uldam <span style={{ color: '#94a3b8', fontWeight: 300 }}>CX</span>
@@ -347,9 +337,9 @@ export default function IntegratedDashboardPage() {
         </Container>
       </Box>
 
-      <Container maxWidth="xl" sx={{ mt: 2, mb: 8, flex: 1 }}>
+      <Container maxWidth="lg" sx={{ mt: 2, mb: 8, flex: 1 }}>
         
-        {/* --- KPI 요약 보드 초압축 --- */}
+        {/* --- KPI 요약 보드 --- */}
         <Box sx={{ display: 'flex', gap: 2, mb: 2, overflowX: 'auto', pb: 0.5 }}>
           {SUMMARY_DATA.map((item, index) => (
             <Card key={index} elevation={0} sx={{ flex: 1, minWidth: '150px', bgcolor: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', backdropFilter: 'blur(10px)' }}>
@@ -364,48 +354,55 @@ export default function IntegratedDashboardPage() {
           ))}
         </Box>
 
-        {/* --- 슈퍼 필터 바 초압축 --- */}
-        <Box sx={{ px: 2, py: 1.5, mb: 2, bgcolor: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Box sx={{ flex: 1, minWidth: '110px' }}>
-            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.5, display: 'block' }}>정렬</Typography>
-            <Select fullWidth size="small" value={sortOrder} onChange={(e) => { setSortOrder(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', color: '#f8fafc', borderRadius: '8px', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' } }}>
-              <MenuItem value="desc">최근 문의 순</MenuItem>
-              <MenuItem value="asc">오래된 문의 순</MenuItem>
+        {/* 💡 [수정] 슈퍼 필터 바 초압축 (글씨 및 패딩 축소) */}
+        <Box sx={{ px: 1.5, py: 1, mb: 2, bgcolor: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          
+          <Box sx={{ flex: 1, minWidth: '90px' }}>
+            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>정렬</Typography>
+            <Select fullWidth size="small" value={sortOrder} onChange={(e) => { setSortOrder(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', color: '#f8fafc', borderRadius: '6px', fontSize: '0.8rem', height: '32px', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' } }}>
+              <MenuItem value="desc" sx={{ fontSize: '0.8rem' }}>최근순</MenuItem>
+              <MenuItem value="asc" sx={{ fontSize: '0.8rem' }}>오래된순</MenuItem>
             </Select>
           </Box>
+
+          <Box sx={{ flex: 1, minWidth: '80px' }}>
+            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>상태</Typography>
+            <Select fullWidth size="small" value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', color: '#f8fafc', borderRadius: '6px', fontSize: '0.8rem', height: '32px', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' } }}>
+              {STATUS_OPTIONS.map(opt => <MenuItem key={opt} value={opt} sx={{ fontSize: '0.8rem' }}>{opt}</MenuItem>)}
+            </Select>
+          </Box>
+
           <Box sx={{ flex: 1, minWidth: '100px' }}>
-            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.5, display: 'block' }}>상태</Typography>
-            <Select fullWidth size="small" value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', color: '#f8fafc', borderRadius: '8px', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' } }}>
-              {STATUS_OPTIONS.map(opt => <MenuItem key={opt} value={opt}>{opt}</MenuItem>)}
+            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>쇼핑몰</Typography>
+            <Select fullWidth size="small" value={filterMall} onChange={(e) => { setFilterMall(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', color: '#f8fafc', borderRadius: '6px', fontSize: '0.8rem', height: '32px', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' } }}>
+              {MALL_OPTIONS.map(opt => <MenuItem key={opt} value={opt} sx={{ fontSize: '0.8rem' }}>{opt}</MenuItem>)}
             </Select>
           </Box>
-          <Box sx={{ flex: 1, minWidth: '100px' }}>
-            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.5, display: 'block' }}>쇼핑몰</Typography>
-            <Select fullWidth size="small" value={filterMall} onChange={(e) => { setFilterMall(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', color: '#f8fafc', borderRadius: '8px', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' } }}>
-              {MALL_OPTIONS.map(opt => <MenuItem key={opt} value={opt}>{opt}</MenuItem>)}
+
+          <Box sx={{ flex: 1, minWidth: '90px' }}>
+            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>카테고리</Typography>
+            <Select fullWidth size="small" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', color: '#f8fafc', borderRadius: '6px', fontSize: '0.8rem', height: '32px', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' } }}>
+              <MenuItem value="전체" sx={{ fontSize: '0.8rem' }}>전체</MenuItem>
             </Select>
           </Box>
-          <Box sx={{ flex: 1, minWidth: '100px' }}>
-            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.5, display: 'block' }}>카테고리</Typography>
-            <Select fullWidth size="small" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', color: '#f8fafc', borderRadius: '8px', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' } }}>
-              <MenuItem value="전체">전체</MenuItem>
-            </Select>
+
+          <Box sx={{ flex: 1.2, minWidth: '110px' }}>
+            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>시작일</Typography>
+            <TextField type="date" fullWidth size="small" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', borderRadius: '6px', input: { color: '#f8fafc', colorScheme: 'dark', fontSize: '0.8rem', py: '6.5px' }, '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' } }} />
           </Box>
-          <Box sx={{ flex: 1.2, minWidth: '130px' }}>
-            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.5, display: 'block' }}>시작일</Typography>
-            <TextField type="date" fullWidth size="small" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', borderRadius: '8px', input: { color: '#f8fafc', colorScheme: 'dark' }, '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' } }} />
+
+          <Box sx={{ flex: 1.2, minWidth: '110px' }}>
+            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>종료일</Typography>
+            <TextField type="date" fullWidth size="small" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', borderRadius: '6px', input: { color: '#f8fafc', colorScheme: 'dark', fontSize: '0.8rem', py: '6.5px' }, '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' } }} />
           </Box>
-          <Box sx={{ flex: 1.2, minWidth: '130px' }}>
-            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.5, display: 'block' }}>종료일</Typography>
-            <TextField type="date" fullWidth size="small" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(0); }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', borderRadius: '8px', input: { color: '#f8fafc', colorScheme: 'dark' }, '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' } }} />
-          </Box>
-          <Box sx={{ flex: 2, minWidth: '200px' }}>
-            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.5, display: 'block' }}>검색</Typography>
-            <TextField fullWidth size="small" placeholder="고객명, 내용, 주문번호" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }} InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ color: '#64748b' }} /></InputAdornment>) }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', borderRadius: '8px', input: { color: '#f8fafc' }, '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' } }} />
+
+          <Box sx={{ flex: 2, minWidth: '180px' }}>
+            <Typography variant="caption" sx={{ color: '#94a3b8', mb: 0.2, fontSize: '0.7rem', display: 'block' }}>검색</Typography>
+            <TextField fullWidth size="small" placeholder="고객명, 내용, 주문번호" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }} InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ color: '#64748b', fontSize: '1rem' }} /></InputAdornment>) }} sx={{ bgcolor: 'rgba(15, 23, 42, 0.5)', borderRadius: '6px', input: { color: '#f8fafc', fontSize: '0.8rem', py: '6.5px' }, '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' } }} />
           </Box>
         </Box>
 
-        {/* --- 액션 컨트롤 바 초압축 --- */}
+        {/* --- 액션 컨트롤 바 --- */}
         <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', mb: 2, px: 2, py: 1.5, bgcolor: 'rgba(30, 41, 59, 0.8)', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Checkbox color="primary" size="small" indeterminate={isSomePageSelected} checked={isAllPageSelected} onChange={handleSelectAllPageClick} sx={{ color: '#64748b', '&.Mui-checked': { color: '#3b82f6' } }} />
@@ -414,7 +411,6 @@ export default function IntegratedDashboardPage() {
           <Stack direction="row" spacing={1}>
             <Button size="small" variant="outlined" startIcon={isCollectingAll ? <CircularProgress size={14} color="inherit" /> : <CloudDownloadIcon fontSize="small" />} onClick={handleCollectAll} disabled={isCollectingAll} sx={{ borderColor: 'rgba(255,255,255,0.2)', color: '#cbd5e1', fontWeight: 600, '&:hover': { borderColor: '#f8fafc', bgcolor: 'rgba(255,255,255,0.05)' } }}>새로 수집</Button>
             
-            {/* 💡 [추가] AI 답변 일괄 생성 버튼 */}
             <Button 
               size="small" 
               variant="contained" 
@@ -448,8 +444,9 @@ export default function IntegratedDashboardPage() {
               const expanded = !!expandedGroups[groupKey];
               
               const isMainSelected = selectedIds.includes(mainItem.id);
-              const standardChannel = getStandardChannelName(mainItem.channel);
+              const standardChannel = normalizeSiteName(mainItem.channel);
               const mainStatusColor = getStatusColor(mainItem.status);
+              const channelAdminUrl = getChannelUrl(standardChannel);
 
               return (
                 <Card key={groupKey} elevation={0} sx={{ bgcolor: isMainSelected ? 'rgba(59, 130, 246, 0.05)' : 'rgba(30, 41, 59, 0.4)', border: `1px solid ${isMainSelected ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)'}`, borderRadius: '12px', transition: '0.2s', '&:hover': { borderColor: isMainSelected ? '#3b82f6' : 'rgba(255,255,255,0.2)' } }}>
@@ -484,7 +481,20 @@ export default function IntegratedDashboardPage() {
                             </Typography>
 
                             <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: 0.5 }}>
-                              <Chip label={standardChannel} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.1)', color: '#f8fafc', fontWeight: 600, borderRadius: '4px', height: '22px', fontSize: '0.7rem' }} />
+                              <Chip 
+                                component="a"
+                                href={channelAdminUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                clickable={channelAdminUrl !== '#'}
+                                label={standardChannel} 
+                                size="small" 
+                                sx={{ 
+                                  bgcolor: 'rgba(255,255,255,0.1)', color: '#f8fafc', fontWeight: 600, borderRadius: '4px', height: '22px', fontSize: '0.7rem',
+                                  textDecoration: 'none',
+                                  '&:hover': channelAdminUrl !== '#' ? { bgcolor: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa', cursor: 'pointer' } : {}
+                                }} 
+                              />
                               <Chip label={mainItem.status} size="small" sx={{ bgcolor: mainStatusColor.bg, color: mainStatusColor.color, fontWeight: 700, borderRadius: '4px', height: '22px', fontSize: '0.7rem' }} />
                             </Stack>
                           </Box>
@@ -617,6 +627,8 @@ export default function IntegratedDashboardPage() {
                               {subItems.map(subItem => {
                                 const isSubSelected = selectedIds.includes(subItem.id);
                                 const subStatusColor = getStatusColor(subItem.status);
+                                const subChannelAdminUrl = getChannelUrl(normalizeSiteName(subItem.channel));
+
                                 return (
                                   <Box key={subItem.id} sx={{ display: 'flex', gap: 1.5 }}>
                                     <Box sx={{ pt: 0.5 }}>

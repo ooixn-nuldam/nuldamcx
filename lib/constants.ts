@@ -22,3 +22,40 @@ export const DISPLAY_CHANNELS = [
   '에이블리',
   '기타' 
 ];
+
+export const CHANNEL_MAP: Record<string, string> = {
+  '스마트 스토어': '네이버',
+  '스마트스토어': '네이버',
+  'ESM지마켓': '이베이',
+  'ESM옥션': '이베이',
+  '카카오톡스토어': '톡스토어',
+  '지그재그': '카카오 지그재그',
+  '롯데홈쇼핑(신)' : '롯데홈쇼핑',
+  '카카오스타일 (지그재그, 포스티)' : '지그재그',
+  'GS shop' : 'GS샵',
+};
+
+export const CHANNEL_URL_MAP: Record<string, string> = {
+  '네이버': 'https://sell.smartstore.naver.com/#/home/dashboard',
+  '쿠팡': 'https://wing.coupang.com/tenants/cs/product/inquiries',
+  '이베이': 'https://www.esmplus.com/Home/v2',
+  '톡스토어': 'https://shopping-seller.kakao.com/product/store-seller/qna/list?answerExist=false&period=',
+  '11번가': 'https://soffice.11st.co.kr/view/main',
+  '롯데온': 'https://store.lotteon.com/cm/main/index_SO.wsp',
+  '카카오 지그재그': 'https://partners.kakaostyle.com/shop/cq-xgnz8ee9/stats',
+  'CJ온스타일': 'https://partners.cjonstyle.com/login',
+  '올웨이즈': 'https://alwayzseller.ilevit.com/',
+  'GS샵': 'https://withgs.gsshop.com/cmm/login',
+  '올리브영': 'https://partner.oliveyoung.co.kr/auth/login',
+  '농협몰': 'https://pscm.nonghyupmall.com/pscm/index.html',
+  '이지웰': 'https://hpas.ezwel.com/views/websquare/websquare.html',
+  '신세계': 'https://spo.shinsegaetvshopping.com/app/index.html',
+  '삼성카드': 'https://ecpartner.samsungcard.com/loginForm.do',
+  '롯데홈쇼핑': 'https://partners.lotteimall.com/',
+  '베네피아': 'https://newmallvenadm.benepia.co.kr/login/loginView.do',
+};
+
+
+export const STATUS_OPTIONS = ['전체', '신규', '대기', '답변저장', '전송요청', '처리완료'];
+
+export const MALL_OPTIONS = ['전체', ...DISPLAY_CHANNELS.filter(c => c !== '기타'), '기타'];
