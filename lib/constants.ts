@@ -64,6 +64,7 @@ export const QUICK_LINKS = [
   { name: '11번가', url: 'https://soffice.11st.co.kr/tictoc/bridge.tmall?method=goChatPage' },
   { name: '코케비즈', url: 'https://biz.koke.kr/seller/chats' },
   { name: 'B2B', url: 'https://business.kakao.com/_gGxcCxj/chats' },
+  { name: '쿠팡', url: 'https://wing.coupang.com/tenants/cs/csinquiry' },
 ];
 
 

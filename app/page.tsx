@@ -12,7 +12,7 @@ import {
   Box, Container, Typography, IconButton, Button,
   Card, CardContent, TextField, Checkbox, Stack, CircularProgress,
   MenuItem, Select, InputAdornment, Chip, TablePagination, Collapse, Link as MuiLink, Divider,
-  Fab, Menu // 💡 [추가] 플로팅 버튼과 메뉴 컴포넌트 임포트
+  Fab, Menu 
 } from '@mui/material';
 
 // Icons
@@ -30,15 +30,13 @@ import {
   Home as HomeIcon,
   SmartToy as SmartToyIcon,
   CheckCircleOutline as CheckCircleIcon,
-  Launch as LaunchIcon, // 💡 [추가] 새 창 열기 아이콘
-  Link as LinkIcon      // 💡 [추가] 링크 메뉴 아이콘
+  Launch as LaunchIcon,
+  Link as LinkIcon
 } from '@mui/icons-material';
 
 // ==========================================
 // 🌟 1. 상수 및 헬퍼 함수
 // ==========================================
-
-
 
 const getStandardChannelName = (rawName: string) => CHANNEL_MAP[rawName] || rawName;
 const getChannelUrl = (channelName: string) => CHANNEL_URL_MAP[channelName] || '#';
@@ -161,8 +159,10 @@ export default function IntegratedDashboardPage() {
   const [isGeneratingAI, setIsGeneratingAI] = useState<Record<string, boolean>>({});
   const [isGeneratingBulkAI, setIsGeneratingBulkAI] = useState(false);
 
-  // 💡 [추가] 빠른 링크 메뉴 열림 상태
   const [linkAnchorEl, setLinkAnchorEl] = useState<null | HTMLElement>(null);
+
+  // 💡 [추가] 시트 저장 로딩 상태
+  const [isSavingSheet, setIsSavingSheet] = useState<Record<string, boolean>>({});
 
   // ==========================================
   // 📡 3. 데이터 페칭 & 보안 검증
@@ -309,6 +309,41 @@ export default function IntegratedDashboardPage() {
     }
   };
 
+  // 💡 [추가] 시트 저장 함수
+  const handleSaveToSheet = async (item: DBInquiry) => {
+    setIsSavingSheet(prev => ({ ...prev, [item.id]: true }));
+    try {
+      const res = await fetch('/api/sheet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel: getStandardChannelName(item.channel) || '-',
+          orderNumber: item.order_number || '-',
+          customerName: item.customer_name || '-',
+          tel: item.receiver_tel || '-',
+          address: item.shipping_address || '-', 
+          product: item.product_name || '-',
+          content: item.content || '-'
+        })
+      });
+      const data = await res.json();
+      
+      if (data.success) {
+        alert(`✅ [${item.customer_name}] 고객님의 문의가 오늘 시트 탭에 저장되었습니다!`);
+      } else {
+        if (data.error === 'TODAY_TAB_MISSING') {
+          alert(`❌ 시트에 오늘 날짜 탭이 없습니다!\n스프레드시트 하단에 오늘 날짜(예: ${new Date().toLocaleDateString('ko-KR', {month:'2-digit', day:'2-digit'}).replace(/[^0-9]/g, '')}) 탭을 먼저 생성해 주세요.`);
+        } else {
+          alert('❌ 저장 실패: ' + data.error);
+        }
+      }
+    } catch (error) {
+      alert('❌ 네트워크 오류가 발생했습니다.');
+    } finally {
+      setIsSavingSheet(prev => ({ ...prev, [item.id]: false }));
+    }
+  };
+
   const handleGenerateAI = async (id: string) => {
     setIsGeneratingAI(prev => ({ ...prev, [id]: true }));
     try {
@@ -358,7 +393,7 @@ export default function IntegratedDashboardPage() {
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'transparent', color: '#f8fafc', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       
-      {/* 💡 [추가] 빠른 링크 플로팅 버튼 (우측 하단) */}
+      {/* 💡 빠른 링크 플로팅 버튼 (우측 하단) */}
       <Box sx={{ position: 'fixed', bottom: 32, right: 32, zIndex: 9999 }}>
         <Fab 
           color="primary" 
@@ -595,6 +630,23 @@ export default function IntegratedDashboardPage() {
                                 }} 
                               />
                               <Chip label={mainItem.status} size="small" sx={{ bgcolor: mainStatusColor.bg, color: mainStatusColor.color, fontWeight: 700, borderRadius: '4px', height: '22px', fontSize: '0.7rem' }} />
+                              
+                              {/* 💡 [추가] 메인 문의 - 시트 저장 버튼 */}
+                              <Button
+                                size="small"
+                                disabled={isSavingSheet[mainItem.id]}
+                                onClick={() => handleSaveToSheet(mainItem)}
+                                startIcon={isSavingSheet[mainItem.id] ? <CircularProgress size={10} color="inherit" /> : <CloudDownloadIcon sx={{ fontSize: 14 }} />}
+                                sx={{
+                                  bgcolor: 'rgba(16, 185, 129, 0.1)', color: '#34d399',
+                                  fontWeight: 600, fontSize: '0.65rem', height: '22px', py: 0, px: 1,
+                                  borderRadius: '4px',
+                                  '&:hover': { bgcolor: 'rgba(16, 185, 129, 0.2)' },
+                                  '&.Mui-disabled': { opacity: 0.5, color: '#34d399' }
+                                }}
+                              >
+                                {isSavingSheet[mainItem.id] ? '저장 중...' : '시트 저장'}
+                              </Button>
                             </Stack>
                           </Box>
 
@@ -681,8 +733,8 @@ export default function IntegratedDashboardPage() {
                                 '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
                                 '&.Mui-disabled': { bgcolor: 'rgba(255, 255, 255, 0.05)' },
                                 '& .MuiInputBase-input.Mui-disabled': {
-                                  WebkitTextFillColor: '#a7a5a5ff !important',
-                                  color: '#a7a5a5ff !important',
+                                  WebkitTextFillColor: '#ffffff !important',
+                                  color: '#ffffff !important',
                                   opacity: 1, 
                                 }
                               } 
@@ -760,7 +812,27 @@ export default function IntegratedDashboardPage() {
                                     </Box>
                                     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
                                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <Chip label={subItem.status} size="small" sx={{ bgcolor: subStatusColor.bg, color: subStatusColor.color, fontWeight: 700, borderRadius: '4px', height: '20px', fontSize: '0.7rem' }} />
+                                        
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                          <Chip label={subItem.status} size="small" sx={{ bgcolor: subStatusColor.bg, color: subStatusColor.color, fontWeight: 700, borderRadius: '4px', height: '20px', fontSize: '0.7rem' }} />
+                                          {/* 💡 [추가] 서브 문의 - 시트 저장 버튼 */}
+                                          <Button
+                                            size="small"
+                                            disabled={isSavingSheet[subItem.id]}
+                                            onClick={() => handleSaveToSheet(subItem)}
+                                            startIcon={isSavingSheet[subItem.id] ? <CircularProgress size={10} color="inherit" /> : <CloudDownloadIcon sx={{ fontSize: 14 }} />}
+                                            sx={{
+                                              bgcolor: 'rgba(16, 185, 129, 0.1)', color: '#34d399',
+                                              fontWeight: 600, fontSize: '0.65rem', height: '20px', py: 0, px: 1,
+                                              borderRadius: '4px',
+                                              '&:hover': { bgcolor: 'rgba(16, 185, 129, 0.2)' },
+                                              '&.Mui-disabled': { opacity: 0.5, color: '#34d399' }
+                                            }}
+                                          >
+                                            {isSavingSheet[subItem.id] ? '저장 중...' : '시트 저장'}
+                                          </Button>
+                                        </Stack>
+
                                         <Typography variant="caption" sx={{ color: '#64748b' }}>
                                           {getDisplayTime(subItem.inquiry_date, subItem.collected_at)}
                                         </Typography>
@@ -780,7 +852,6 @@ export default function IntegratedDashboardPage() {
                                               bgcolor: 'rgba(15, 23, 42, 0.4)', color: '#94a3b8', borderRadius: '8px', fontSize: '0.8rem', p: 1, pr: 16,
                                               '& fieldset': { borderColor: 'rgba(255,255,255,0.05)' },
                                               '&.Mui-disabled': { bgcolor: 'rgba(255, 255, 255, 0.05)' },
-                                              // 💡 [완벽한 해결책] 알맹이 textarea 요소에 강제로 색상 고정!
                                               '& .MuiInputBase-input.Mui-disabled': {
                                                 WebkitTextFillColor: '#ffffff !important',
                                                 color: '#ffffff !important',
