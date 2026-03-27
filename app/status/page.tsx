@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+// 💡 [수정] next/router 삭제하고 next/navigation에서 useRouter 가져오기
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 // 💡 분리해둔 상수와 정규화 함수
@@ -12,7 +14,7 @@ import { normalizeSiteName } from '@/lib/siteMapper';
 import {
   Box, Container, Typography, IconButton, TextField, Stack,
   Card, CardContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
-  Chip, Fade, ToggleButton, ToggleButtonGroup
+  Chip, Fade, ToggleButton, ToggleButtonGroup, CircularProgress // 💡 CircularProgress 추가
 } from '@mui/material';
 
 // MUI Icons
@@ -24,7 +26,7 @@ import {
   ListAlt as ListAltIcon,
   PieChart as PieChartIcon
 } from '@mui/icons-material';
-import router from 'next/router';
+
 
 // ==========================================
 // 🌟 1. 타입 정의
@@ -53,6 +55,8 @@ const getLocalYYYYMMDD = (d: Date) => {
 // 🌟 2. 메인 컴포넌트
 // ==========================================
 export default function StatusPage() {
+  const router = useRouter(); // 💡 라우터 초기화
+  
   const todayDate = getLocalYYYYMMDD(new Date());
   const thisMonth = todayDate.substring(0, 7);
 
@@ -67,6 +71,9 @@ export default function StatusPage() {
   
   const [callStats, setCallStats] = useState({ inflow: 0, response: 0 });
   const [loading, setLoading] = useState(true);
+  
+  // 💡 [핵심] 인증 확인 상태 추가
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   // ==========================================
   // 📡 3. 데이터 페칭 (트렌드 차트)
@@ -134,17 +141,20 @@ export default function StatusPage() {
     fetchTrendData();
   }, [viewMode]);
 
+  // 💡 [수정] 보안 검증 로직에 isCheckingAuth 적용
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session || session.user.email !== 'cx@joinandjoin.com') {
+      if (!session || session?.user?.email !== 'cx@joinandjoin.com') {
         router.replace('/login');
+      } else {
+        setIsCheckingAuth(false); // 인증 성공 시에만 화면 열어줌
       }
     };
     checkAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT' || !session || session.user.email !== 'cx@joinandjoin.com') {
+      if (event === 'SIGNED_OUT' || !session || session?.user?.email !== 'cx@joinandjoin.com') {
         router.replace('/login');
       }
     });
@@ -224,6 +234,16 @@ export default function StatusPage() {
   // ==========================================
   // 🎨 6. 렌더링
   // ==========================================
+  
+  // 💡 [핵심] 인증 완료 전까지는 절대 화면 안 보여주고 뺑글뺑글 로딩만!
+  if (isCheckingAuth) {
+    return (
+      <Box sx={{ minHeight: '100vh', bgcolor: '#0f172a', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+        <CircularProgress sx={{ color: '#3b82f6' }} />
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#0f172a', color: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
       
@@ -294,7 +314,7 @@ export default function StatusPage() {
                         onClick={() => viewMode === 'daily' ? setTargetDate(item.id) : setTargetMonth(item.id)}
                         sx={{ 
                           flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', cursor: 'pointer',
-                          height: '100%', // 💡 [핵심 버그 수정] 부모 요소에 높이 100% 부여!
+                          height: '100%',
                           opacity: isSelected ? 1 : 0.6, transition: '0.2s',
                           '&:hover': { opacity: 1, '& .bar': { bgcolor: isSelected ? '#3b82f6' : 'rgba(59, 130, 246, 0.5)' } }
                         }}
