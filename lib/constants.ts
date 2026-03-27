@@ -55,6 +55,17 @@ export const CHANNEL_URL_MAP: Record<string, string> = {
   '베네피아': 'https://newmallvenadm.benepia.co.kr/login/loginView.do',
 };
 
+export const QUICK_LINKS = [
+  { name: '톡스토어', url: 'https://shopping-sellernoti-web.kakao.com/seller/article/findList?status=UNPROCESSED' },
+  { name: '올웨이즈', url: 'https://alwayzseller.ilevit.com/' },
+  { name: '토스', url: 'https://shopping-seller.toss.im/customer-support' },
+  { name: '알리', url: 'https://gsp.aliexpress.com/m_apps/im-chat/im#/window' },
+  { name: '에이블리', url: 'https://my.a-bly.com/inquiry' },
+  { name: '11번가', url: 'https://soffice.11st.co.kr/tictoc/bridge.tmall?method=goChatPage' },
+  { name: '코케비즈', url: 'https://biz.koke.kr/seller/chats' },
+  { name: 'B2B', url: 'https://business.kakao.com/_gGxcCxj/chats' },
+];
+
 
 export const STATUS_OPTIONS = ['전체', '신규', '대기', '답변저장', '전송요청', '처리완료'];
 

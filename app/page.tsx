@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 // 💡 상수 및 정규화 함수 임포트
-import { CHANNEL_URL_MAP, STATUS_OPTIONS, MALL_OPTIONS, CHANNEL_MAP } from '@/lib/constants';
+import { CHANNEL_URL_MAP, STATUS_OPTIONS, MALL_OPTIONS, CHANNEL_MAP, QUICK_LINKS } from '@/lib/constants';
 
 // MUI Components
 import {
   Box, Container, Typography, IconButton, Button,
   Card, CardContent, TextField, Checkbox, Stack, CircularProgress,
-  MenuItem, Select, InputAdornment, Chip, TablePagination, Collapse, Link as MuiLink, Divider
+  MenuItem, Select, InputAdornment, Chip, TablePagination, Collapse, Link as MuiLink, Divider,
+  Fab, Menu // 💡 [추가] 플로팅 버튼과 메뉴 컴포넌트 임포트
 } from '@mui/material';
 
 // Icons
@@ -27,23 +28,25 @@ import {
   Person as PersonIcon,
   Phone as PhoneIcon,
   Home as HomeIcon,
-  SmartToy as SmartToyIcon
+  SmartToy as SmartToyIcon,
+  CheckCircleOutline as CheckCircleIcon,
+  Launch as LaunchIcon, // 💡 [추가] 새 창 열기 아이콘
+  Link as LinkIcon      // 💡 [추가] 링크 메뉴 아이콘
 } from '@mui/icons-material';
 
 // ==========================================
 // 🌟 1. 상수 및 헬퍼 함수
 // ==========================================
 
-const getStandardChannelName = (rawName: string) => CHANNEL_MAP[rawName] || rawName;
 
-// 어드민 접속 URL 가져오기
+
+const getStandardChannelName = (rawName: string) => CHANNEL_MAP[rawName] || rawName;
 const getChannelUrl = (channelName: string) => CHANNEL_URL_MAP[channelName] || '#';
 
-// 날짜 및 시간 안전 파싱 (정렬용)
 const getSafeTime = (inquiryDate?: string, collectedAt?: string) => {
   const t1 = inquiryDate ? new Date(inquiryDate).getTime() : 0;
   const t2 = collectedAt ? new Date(collectedAt).getTime() : 0;
-  return Math.max(t1, t2); // 둘 중 더 늦은(최신) 시간 반환
+  return Math.max(t1, t2);
 };
 
 const getDisplayTime = (inquiryDate?: string, collectedAt?: string) => {
@@ -123,7 +126,7 @@ interface DBInquiry {
   receiver_tel?: string;
   shipping_address?: string;
   tracking_number?: string;
-  product_name?: string; // 상품명 필드
+  product_name?: string; 
 }
 
 export default function IntegratedDashboardPage() {
@@ -158,8 +161,11 @@ export default function IntegratedDashboardPage() {
   const [isGeneratingAI, setIsGeneratingAI] = useState<Record<string, boolean>>({});
   const [isGeneratingBulkAI, setIsGeneratingBulkAI] = useState(false);
 
+  // 💡 [추가] 빠른 링크 메뉴 열림 상태
+  const [linkAnchorEl, setLinkAnchorEl] = useState<null | HTMLElement>(null);
+
   // ==========================================
-  // 📡 3. 데이터 페칭
+  // 📡 3. 데이터 페칭 & 보안 검증
   // ==========================================
   const fetchDataAndCounts = async () => {
     setLoading(true);
@@ -171,9 +177,7 @@ export default function IntegratedDashboardPage() {
     
     setCounts({ total: total || 0, pending: pending || 0, completed: completed || 0, reviewing: reviewing || 0 });
 
-    const { data, error } = await supabase
-      .from('inquiries')
-      .select('*');
+    const { data, error } = await supabase.from('inquiries').select('*');
 
     if (!error && data) {
       setAllData(data);
@@ -192,14 +196,14 @@ export default function IntegratedDashboardPage() {
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session || session.user.email !== 'cx@joinandjoin.com') {
+      if (!session || session?.user?.email !== 'cx@joinandjoin.com') {
         router.replace('/login');
       }
     };
     checkAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT' || !session || session.user.email !== 'cx@joinandjoin.com') {
+      if (event === 'SIGNED_OUT' || !session || session?.user?.email !== 'cx@joinandjoin.com') {
         router.replace('/login');
       }
     });
@@ -295,6 +299,16 @@ export default function IntegratedDashboardPage() {
   const handleBulkSubmit = async () => { setIsSubmitting(true); try { await Promise.all(selectedIds.map(id => supabase.from('inquiries').update({ admin_reply: replyTexts[id], status: '답변저장' }).eq('id', id))); await fetch('/api/reply', { method: 'POST', body: JSON.stringify({ ids: selectedIds }) }); fetchDataAndCounts(); } finally { setIsSubmitting(false); } };
   const handleTriggerBot = async () => { setIsTriggeringBot(true); try { await fetch('/api/trigger-bot', { method: 'POST' }); fetchDataAndCounts(); } finally { setIsTriggeringBot(false); } };
 
+  const handleForceComplete = async (id: string) => {
+    if (!window.confirm('이 문의를 강제로 [처리완료] 상태로 변경하시겠습니까?')) return;
+    try {
+      await supabase.from('inquiries').update({ status: '처리완료' }).eq('id', id);
+      fetchDataAndCounts(); 
+    } catch (error) {
+      console.error("상태 변경 실패:", error);
+    }
+  };
+
   const handleGenerateAI = async (id: string) => {
     setIsGeneratingAI(prev => ({ ...prev, [id]: true }));
     try {
@@ -342,7 +356,64 @@ export default function IntegratedDashboardPage() {
   ];
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: 'transparent', color: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: 'transparent', color: '#f8fafc', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      
+      {/* 💡 [추가] 빠른 링크 플로팅 버튼 (우측 하단) */}
+      <Box sx={{ position: 'fixed', bottom: 32, right: 32, zIndex: 9999 }}>
+        <Fab 
+          color="primary" 
+          onClick={(e) => setLinkAnchorEl(e.currentTarget)}
+          sx={{ 
+            bgcolor: '#3b82f6', color: '#fff', 
+            boxShadow: '0 4px 14px rgba(59, 130, 246, 0.5)',
+            '&:hover': { bgcolor: '#2563eb' } 
+          }}
+        >
+          <LinkIcon />
+        </Fab>
+        <Menu
+          anchorEl={linkAnchorEl}
+          open={Boolean(linkAnchorEl)}
+          onClose={() => setLinkAnchorEl(null)}
+          anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+          transformOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          PaperProps={{
+            elevation: 3,
+            sx: {
+              bgcolor: 'rgba(30, 41, 59, 0.95)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: '#f8fafc',
+              mt: -1,
+              ml: 1,
+              borderRadius: '12px',
+              minWidth: '220px'
+            }
+          }}
+        >
+          <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid rgba(255,255,255,0.05)', mb: 1 }}>
+            <Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 700 }}>CS 채널 빠른 이동</Typography>
+          </Box>
+          {QUICK_LINKS.map((link) => (
+            <MenuItem 
+              key={link.name} 
+              onClick={() => {
+                window.open(link.url, '_blank');
+                setLinkAnchorEl(null);
+              }}
+              sx={{ 
+                py: 1.5, px: 2, fontSize: '0.85rem', fontWeight: 500,
+                display: 'flex', justifyContent: 'space-between',
+                '&:hover': { bgcolor: 'rgba(59, 130, 246, 0.1)' }
+              }}
+            >
+              {link.name}
+              <LaunchIcon sx={{ fontSize: 14, color: '#64748b' }} />
+            </MenuItem>
+          ))}
+        </Menu>
+      </Box>
+
       <Box component="header" sx={{ borderBottom: '1px solid rgba(255,255,255,0.05)', backdropFilter: 'blur(10px)', bgcolor: 'rgba(15, 23, 42, 0.6)', position: 'sticky', top: 0, zIndex: 50 }}>
         <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
@@ -461,8 +532,15 @@ export default function IntegratedDashboardPage() {
               const mainStatusColor = getStatusColor(mainItem.status);
               const channelAdminUrl = getChannelUrl(standardChannel);
 
+              const isCompletedMain = mainItem.status === '처리완료';
+
               return (
-                <Card key={groupKey} elevation={0} sx={{ bgcolor: isMainSelected ? 'rgba(59, 130, 246, 0.05)' : 'rgba(30, 41, 59, 0.4)', border: `1px solid ${isMainSelected ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)'}`, borderRadius: '12px', transition: '0.2s', '&:hover': { borderColor: isMainSelected ? '#3b82f6' : 'rgba(255,255,255,0.2)' } }}>
+                <Card key={groupKey} elevation={0} sx={{ 
+                  bgcolor: isMainSelected ? 'rgba(59, 130, 246, 0.05)' : (isCompletedMain ? 'rgba(255, 255, 255, 0.03)' : 'rgba(30, 41, 59, 0.4)'), 
+                  border: `1px solid ${isMainSelected ? '#3b82f6' : (isCompletedMain ? 'rgba(255, 255, 255, 0.02)' : 'rgba(255, 255, 255, 0.05)')}`, 
+                  borderRadius: '12px', transition: '0.2s', 
+                  '&:hover': { borderColor: isMainSelected ? '#3b82f6' : 'rgba(255,255,255,0.2)' } 
+                }}>
                   <CardContent sx={{ p: '16px !important' }}>
                     
                     <Box sx={{ display: 'flex', gap: 1.5 }}>
@@ -593,36 +671,59 @@ export default function IntegratedDashboardPage() {
                             multiline fullWidth minRows={2} maxRows={6} size="small" 
                             value={replyTexts[mainItem.id] !== undefined ? replyTexts[mainItem.id] : ''} 
                             onChange={(e) => handleReplyChange(mainItem.id, e.target.value)} 
-                            placeholder={mainItem.status === '처리완료' ? "처리 완료된 문의입니다." : "답변 작성"}
-                            disabled={mainItem.status === '처리완료'}
+                            placeholder={isCompletedMain ? "처리 완료된 문의입니다." : "답변 작성"}
+                            disabled={isCompletedMain}
                             sx={{ 
                               '& .MuiOutlinedInput-root': { 
-                                bgcolor: 'rgba(15, 23, 42, 0.8)', color: '#f8fafc', borderRadius: '8px', fontSize: '0.85rem', p: 1.5, pr: 12,
+                                bgcolor: 'rgba(15, 23, 42, 0.8)', color: '#f8fafc', borderRadius: '8px', fontSize: '0.85rem', p: 1.5, pr: 20,
                                 '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' }, 
                                 '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.2)' }, 
-                                '&.Mui-focused fieldset': { borderColor: '#3b82f6' } 
+                                '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                                '&.Mui-disabled': { bgcolor: 'rgba(255, 255, 255, 0.05)' },
+                                '& .MuiInputBase-input.Mui-disabled': {
+                                  WebkitTextFillColor: '#a7a5a5ff !important',
+                                  color: '#a7a5a5ff !important',
+                                  opacity: 1, 
+                                }
                               } 
                             }} 
                           />
                           
-                          <Button
-                            size="small"
-                            variant="contained"
-                            disabled={isGeneratingAI[mainItem.id] || mainItem.status === '처리완료'}
-                            onClick={() => handleGenerateAI(mainItem.id)}
-                            startIcon={isGeneratingAI[mainItem.id] ? <CircularProgress size={12} color="inherit" /> : <SmartToyIcon sx={{ fontSize: 16 }} />}
-                            sx={{
-                              position: 'absolute', right: 8, bottom: 8,
-                              bgcolor: 'rgba(139, 92, 246, 0.2)', color: '#a78bfa',
-                              border: '1px solid rgba(139, 92, 246, 0.3)',
-                              fontWeight: 600, fontSize: '0.7rem', height: '24px', py: 0, px: 1,
-                              borderRadius: '6px',
-                              '&:hover': { bgcolor: 'rgba(139, 92, 246, 0.4)' },
-                              '&.Mui-disabled': { bgcolor: 'transparent', color: '#64748b', borderColor: 'transparent' }
-                            }}
-                          >
-                            {isGeneratingAI[mainItem.id] ? '생성 중...' : 'AI 답변'}
-                          </Button>
+                          <Stack direction="row" spacing={1} sx={{ position: 'absolute', right: 8, bottom: 8 }}>
+                            {!isCompletedMain && (
+                              <Button
+                                size="small"
+                                onClick={() => handleForceComplete(mainItem.id)}
+                                startIcon={<CheckCircleIcon sx={{ fontSize: 16 }} />}
+                                sx={{
+                                  bgcolor: 'rgba(255, 255, 255, 0.05)', color: '#cbd5e1',
+                                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                                  fontWeight: 600, fontSize: '0.7rem', height: '24px', py: 0, px: 1,
+                                  borderRadius: '6px',
+                                  '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.1)' }
+                                }}
+                              >
+                                강제 완료
+                              </Button>
+                            )}
+                            <Button
+                              size="small"
+                              variant="contained"
+                              disabled={isGeneratingAI[mainItem.id] || isCompletedMain}
+                              onClick={() => handleGenerateAI(mainItem.id)}
+                              startIcon={isGeneratingAI[mainItem.id] ? <CircularProgress size={12} color="inherit" /> : <SmartToyIcon sx={{ fontSize: 16 }} />}
+                              sx={{
+                                bgcolor: 'rgba(139, 92, 246, 0.2)', color: '#a78bfa',
+                                border: '1px solid rgba(139, 92, 246, 0.3)',
+                                fontWeight: 600, fontSize: '0.7rem', height: '24px', py: 0, px: 1,
+                                borderRadius: '6px',
+                                '&:hover': { bgcolor: 'rgba(139, 92, 246, 0.4)' },
+                                '&.Mui-disabled': { bgcolor: 'transparent', color: 'transparent', borderColor: 'transparent' } 
+                              }}
+                            >
+                              {isGeneratingAI[mainItem.id] ? '생성 중...' : 'AI 답변'}
+                            </Button>
+                          </Stack>
                         </Box>
                         
                         {mainItem.ai_draft && !mainItem.admin_reply && (
@@ -650,9 +751,10 @@ export default function IntegratedDashboardPage() {
                                 const isSubSelected = selectedIds.includes(subItem.id);
                                 const subStatusColor = getStatusColor(subItem.status);
                                 const subChannelAdminUrl = getChannelUrl(getStandardChannelName(subItem.channel)); 
+                                const isCompletedSub = subItem.status === '처리완료'; 
 
                                 return (
-                                  <Box key={subItem.id} sx={{ display: 'flex', gap: 1.5 }}>
+                                  <Box key={subItem.id} sx={{ display: 'flex', gap: 1.5, opacity: isCompletedSub ? 0.7 : 1 }}>
                                     <Box sx={{ pt: 0.5 }}>
                                       <Checkbox size="small" checked={isSubSelected} onChange={() => handleClick(subItem.id)} sx={{ color: '#64748b', '&.Mui-checked': { color: '#3b82f6' }, p: 0 }} />
                                     </Box>
@@ -671,30 +773,54 @@ export default function IntegratedDashboardPage() {
                                           fullWidth minRows={1} maxRows={4} size="small" 
                                           value={replyTexts[subItem.id] !== undefined ? replyTexts[subItem.id] : ''} 
                                           onChange={(e) => handleReplyChange(subItem.id, e.target.value)} 
-                                          placeholder={subItem.status === '처리완료' ? "처리 완료된 문의입니다." : "답변 작성"}
-                                          disabled={subItem.status === '처리완료'}
+                                          placeholder={isCompletedSub ? "처리 완료된 문의입니다." : "답변 작성"}
+                                          disabled={isCompletedSub}
                                           sx={{ 
                                             '& .MuiOutlinedInput-root': { 
-                                              bgcolor: 'rgba(15, 23, 42, 0.4)', color: '#94a3b8', borderRadius: '8px', fontSize: '0.8rem', p: 1, pr: 12,
-                                              '& fieldset': { borderColor: 'rgba(255,255,255,0.05)' } 
+                                              bgcolor: 'rgba(15, 23, 42, 0.4)', color: '#94a3b8', borderRadius: '8px', fontSize: '0.8rem', p: 1, pr: 16,
+                                              '& fieldset': { borderColor: 'rgba(255,255,255,0.05)' },
+                                              '&.Mui-disabled': { bgcolor: 'rgba(255, 255, 255, 0.05)' },
+                                              // 💡 [완벽한 해결책] 알맹이 textarea 요소에 강제로 색상 고정!
+                                              '& .MuiInputBase-input.Mui-disabled': {
+                                                WebkitTextFillColor: '#ffffff !important',
+                                                color: '#ffffff !important',
+                                                opacity: 1,
+                                              }
                                             } 
                                           }} 
                                         />
-                                        <Button
-                                          size="small"
-                                          disabled={isGeneratingAI[subItem.id] || subItem.status === '처리완료'}
-                                          onClick={() => handleGenerateAI(subItem.id)}
-                                          startIcon={isGeneratingAI[subItem.id] ? <CircularProgress size={10} color="inherit" /> : <SmartToyIcon sx={{ fontSize: 14 }} />}
-                                          sx={{
-                                            position: 'absolute', right: 4, bottom: 4,
-                                            bgcolor: 'rgba(139, 92, 246, 0.1)', color: '#a78bfa',
-                                            fontWeight: 600, fontSize: '0.65rem', height: '20px', py: 0, px: 1,
-                                            borderRadius: '4px',
-                                            '&:hover': { bgcolor: 'rgba(139, 92, 246, 0.3)' }
-                                          }}
-                                        >
-                                          AI 답변
-                                        </Button>
+                                        
+                                        <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', right: 4, bottom: 4 }}>
+                                          {!isCompletedSub && (
+                                            <Button
+                                              size="small"
+                                              onClick={() => handleForceComplete(subItem.id)}
+                                              sx={{
+                                                bgcolor: 'rgba(255, 255, 255, 0.05)', color: '#cbd5e1',
+                                                fontWeight: 600, fontSize: '0.65rem', height: '20px', py: 0, px: 1,
+                                                borderRadius: '4px',
+                                                '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.1)' }
+                                              }}
+                                            >
+                                              강제 완료
+                                            </Button>
+                                          )}
+                                          <Button
+                                            size="small"
+                                            disabled={isGeneratingAI[subItem.id] || isCompletedSub}
+                                            onClick={() => handleGenerateAI(subItem.id)}
+                                            startIcon={isGeneratingAI[subItem.id] ? <CircularProgress size={10} color="inherit" /> : <SmartToyIcon sx={{ fontSize: 14 }} />}
+                                            sx={{
+                                              bgcolor: 'rgba(139, 92, 246, 0.1)', color: '#a78bfa',
+                                              fontWeight: 600, fontSize: '0.65rem', height: '20px', py: 0, px: 1,
+                                              borderRadius: '4px',
+                                              '&:hover': { bgcolor: 'rgba(139, 92, 246, 0.3)' },
+                                              '&.Mui-disabled': { bgcolor: 'transparent', color: 'transparent', borderColor: 'transparent' }
+                                            }}
+                                          >
+                                            AI 답변
+                                          </Button>
+                                        </Stack>
                                       </Box>
                                     </Box>
                                   </Box>
