@@ -309,7 +309,7 @@ export default function IntegratedDashboardPage() {
     }
   };
 
-  // 💡 [추가] 시트 저장 함수
+
   const handleSaveToSheet = async (item: DBInquiry) => {
     setIsSavingSheet(prev => ({ ...prev, [item.id]: true }));
     try {
@@ -322,17 +322,18 @@ export default function IntegratedDashboardPage() {
           customerName: item.customer_name || '-',
           tel: item.receiver_tel || '-',
           address: item.shipping_address || '-', 
-          product: item.product_name || '-',
-          content: item.content || '-'
+          trackingNumber: item.tracking_number || '-', 
         })
       });
       const data = await res.json();
       
+      const safeName = item.customer_name ? item.customer_name : '고객';
+      
       if (data.success) {
-        alert(`✅ [${item.customer_name}] 고객님의 문의가 오늘 시트 탭에 저장되었습니다!`);
+        alert(`✅ [${safeName}]님의 데이터가 오늘 시트 탭에 저장되었습니다!`);
       } else {
         if (data.error === 'TODAY_TAB_MISSING') {
-          alert(`❌ 시트에 오늘 날짜 탭이 없습니다!\n스프레드시트 하단에 오늘 날짜(예: ${new Date().toLocaleDateString('ko-KR', {month:'2-digit', day:'2-digit'}).replace(/[^0-9]/g, '')}) 탭을 먼저 생성해 주세요.`);
+          alert(`❌ 시트에 오늘 날짜 탭이 없습니다!\n스프레드시트 하단에 오늘 날짜 탭을 먼저 생성해 주세요.`);
         } else {
           alert('❌ 저장 실패: ' + data.error);
         }
@@ -344,6 +345,7 @@ export default function IntegratedDashboardPage() {
     }
   };
 
+  
   const handleGenerateAI = async (id: string) => {
     setIsGeneratingAI(prev => ({ ...prev, [id]: true }));
     try {
